@@ -74,31 +74,33 @@ BEGIN
   v_definition := pg_get_functiondef(
     'public.record_order_payment(uuid,uuid,numeric,text,text,text)'::regprocedure
   );
-  v_anchor := 'RAISE EXCEPTION ''payments cannot be recorded on a cancelled order'';
-  END IF;';
-  IF position(v_anchor IN v_definition) = 0 THEN
+  -- Anchors are single lines so the patch works whatever line endings the
+  -- function was saved with. The closed-register check goes just before the
+  -- cancelled-order check, after the order row has been locked.
+  v_anchor := 'IF v_order.status = ''cancelled'' THEN';
+  IF position(v_anchor IN v_definition) = 0
+     OR position('payments cannot be recorded on a cancelled order' IN v_definition) = 0 THEN
     RAISE EXCEPTION 'Unexpected record_order_payment definition; update the register rules migration.';
   END IF;
-  v_definition := replace(v_definition, v_anchor, v_anchor || '
-  IF EXISTS (
-    SELECT 1 FROM public.cash_register
-    WHERE register_date = (now() AT TIME ZONE ''Africa/Algiers'')::date
-      AND transaction_type = ''closing''
-  ) THEN
-    RAISE EXCEPTION ''the register is closed for today; record this after the next opening'';
-  END IF;');
+  v_definition := replace(v_definition, v_anchor,
+    'IF EXISTS (SELECT 1 FROM public.cash_register'
+    || ' WHERE register_date = (now() AT TIME ZONE ''Africa/Algiers'')::date'
+    || ' AND transaction_type = ''closing'') THEN'
+    || ' RAISE EXCEPTION ''the register is closed for today; record this after the next opening'';'
+    || ' END IF; ' || v_anchor);
   EXECUTE v_definition;
 
   v_definition := pg_get_functiondef(
     'public.open_cash_register_with_after_hours(numeric)'::regprocedure
   );
-  v_anchor := 'IF v_amount IS NULL OR v_amount <= 0 THEN
-    RAISE EXCEPTION ''opening balance must be greater than zero'';';
-  IF position(v_anchor IN v_definition) = 0 THEN
+  v_anchor := 'IF v_amount IS NULL OR v_amount <= 0 THEN';
+  IF position(v_anchor IN v_definition) = 0
+     OR position('opening balance must be greater than zero' IN v_definition) = 0 THEN
     RAISE EXCEPTION 'Unexpected open_cash_register_with_after_hours definition; update the register rules migration.';
   END IF;
-  v_definition := replace(v_definition, v_anchor, 'IF v_amount IS NULL OR v_amount < 0 THEN
-    RAISE EXCEPTION ''opening balance cannot be negative'';');
+  v_definition := replace(v_definition, v_anchor, 'IF v_amount IS NULL OR v_amount < 0 THEN');
+  v_definition := replace(v_definition, 'opening balance must be greater than zero',
+    'opening balance cannot be negative');
   EXECUTE v_definition;
 END;
 $migration$;
