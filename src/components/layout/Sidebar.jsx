@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, Building2,
   FileText, Truck, Users, Settings, Vault, BarChart3,
-  Package, UserCircle, X, QrCode,
+  Package, UserCircle, X, QrCode, Activity,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useShopName } from '../../hooks/useShopName'
@@ -45,6 +45,7 @@ const navGroups = [
     label: 'Business',
     items: [
       { path: '/coffre-forte', label: 'Coffre Forte', icon: Vault },
+      { path: '/activity',     label: 'Activity log', icon: Activity },
       { path: '/reports',      label: 'Reports',      icon: BarChart3 },
       { path: '/team',         label: 'Team',         icon: Users },
       { path: '/settings',     label: 'Settings',     icon: Settings },

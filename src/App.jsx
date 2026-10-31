@@ -22,6 +22,7 @@ import Reports from './pages/Reports'
 import ProtectedRoute from './components/layout/ProtectedRoute'
 import RoleGuard from './components/layout/RoleGuard'
 import CoffreForte from './pages/CoffreForte'
+import ActivityLog from './pages/ActivityLog'
 import Suppliers from './pages/Suppliers'
 import OrderDetail from './pages/OrderDetail'
 import Forbidden from './pages/Forbidden'
@@ -91,6 +92,7 @@ function AppRoutes() {
           <Route path="/reports" element={<RoleGuard><Reports /></RoleGuard>} />
           <Route path="/suppliers" element={<RoleGuard><Suppliers /></RoleGuard>} />
           <Route path="/coffre-forte" element={<RoleGuard><CoffreForte /></RoleGuard>} />
+          <Route path="/activity" element={<RoleGuard><ActivityLog /></RoleGuard>} />
           {/* Keep old bookmarks working while Quick Sale now lives in the shared cart/checkout flow. */}
           <Route path="/quick-sale" element={<Navigate to="/cart?mode=quick_sale" replace />} />
         </Route>

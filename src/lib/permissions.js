@@ -16,6 +16,7 @@ const MANAGEMENT = ['owner', 'manager']
 export const ROUTE_PERMISSIONS = {
   '/orders/receipt': FRONT_COUNTER,
   '/coffre-forte': ['owner'],
+  '/activity': ['owner'],
   '/suppliers': MANAGEMENT,
   '/reports': MANAGEMENT,
   '/settings': ['owner'],
