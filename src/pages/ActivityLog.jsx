@@ -23,13 +23,14 @@ const KIND_STYLE = {
   waste: { label: 'Waste', dot: 'bg-amber-600' },
   register: { label: 'Register', dot: 'bg-violet-500' },
   team: { label: 'Team', dot: 'bg-sky-600' },
+  direct: { label: 'Direct DB', dot: 'bg-rose-600' },
   other: { label: 'Other', dot: 'bg-slate-300' },
 }
 
 const KIND_FILTERS = [
   ['', 'All types'], ['sale', 'Sales'], ['payment', 'Payments'], ['refund', 'Refunds'],
-  ['void', 'Cancellations'], ['delete', 'Deletions'], ['status', 'Status'],
-  ['register', 'Register'], ['waste', 'Waste'], ['team', 'Team'],
+  ['void', 'Cancellations'], ['delete', 'Deletions'], ['direct', 'Direct database'],
+  ['status', 'Status'], ['register', 'Register'], ['waste', 'Waste'], ['team', 'Team'],
 ]
 
 // Local midnight (Algiers) for a date input value, as a timestamptz the RPC
@@ -184,7 +185,8 @@ function ActivityLog() {
             const style = KIND_STYLE[row.kind] || KIND_STYLE.other
             return (
               <div key={`${row.at}-${index}`}
-                className="flex items-start gap-3 rounded-xl px-3 py-2.5 hover:bg-slate-50">
+                className={`flex items-start gap-3 rounded-xl px-3 py-2.5 hover:bg-slate-50 ${
+                  row.kind === 'direct' ? 'bg-rose-50/60 ring-1 ring-rose-100' : ''}`}>
                 <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${style.dot}`} />
                 <span className="w-32 shrink-0 text-xs tabular-nums text-gray-400">{formatBusinessDateTime(row.at)}</span>
                 <div className="min-w-0 flex-1">

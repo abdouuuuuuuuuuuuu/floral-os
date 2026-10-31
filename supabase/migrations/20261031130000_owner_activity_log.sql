@@ -40,7 +40,10 @@ BEGIN
     -- archives, status changes, team changes, waste.
     SELECT
       a.logged_at AS at,
-      nullif(a.performed_by, '')::uuid AS actor_id,
+      -- performed_by is normally a uuid string, but direct-database rows store
+      -- a label ('direct-db'); only cast real uuids, keep the label separately.
+      CASE WHEN a.performed_by ~ '^[0-9a-fA-F-]{36}$' THEN a.performed_by::uuid END AS actor_id,
+      a.performed_by AS performed_by,
       a.action_taken AS action,
       coalesce(
         a.new_value->>'order_number', a.new_value->'order'->>'order_number',
@@ -62,6 +65,7 @@ BEGIN
     SELECT
       c.created_at,
       c.user_id,
+      c.user_id::text,
       'register_' || c.transaction_type,
       NULL,
       c.amount,
@@ -74,8 +78,11 @@ BEGIN
     SELECT
       raw.at,
       raw.actor_id,
+      raw.performed_by,
       CASE raw.action
         WHEN 'create_order' THEN 'sale'
+        WHEN 'direct_update_order' THEN 'direct'
+        WHEN 'direct_delete_order' THEN 'direct'
         WHEN 'record_order_payment' THEN 'payment'
         WHEN 'refund_order_payment' THEN 'refund'
         WHEN 'void_order' THEN 'void'
@@ -104,8 +111,9 @@ BEGIN
   SELECT
     m.at,
     m.actor_id,
-    coalesce(p.full_name, p.username, 'System') AS actor_name,
-    coalesce(p.role, '—') AS actor_role,
+    coalesce(p.full_name, p.username,
+      CASE WHEN m.performed_by = 'direct-db' THEN 'Direct database change' ELSE 'System' END) AS actor_name,
+    coalesce(p.role, CASE WHEN m.performed_by = 'direct-db' THEN 'supabase' ELSE '—' END) AS actor_role,
     m.kind,
     m.order_number,
     m.amount,
@@ -119,6 +127,9 @@ BEGIN
       WHEN 'delete' THEN 'Order permanently deleted' || coalesce(' #' || m.order_number, '')
       WHEN 'archive' THEN 'Order archived' || coalesce(' #' || m.order_number, '')
       WHEN 'status' THEN 'Status changed' || coalesce(' #' || m.order_number, '')
+      WHEN 'direct' THEN CASE WHEN m.action = 'direct_delete_order'
+        THEN 'Deleted directly in database' ELSE 'Changed directly in database' END
+        || coalesce(' #' || m.order_number, '')
       WHEN 'waste' THEN 'Flower waste recorded'
       WHEN 'register' THEN CASE WHEN m.action = 'register_opening' THEN 'Register opened' ELSE 'Register closed' END
       WHEN 'team' THEN 'Team: ' || replace(m.action, '_', ' ')
