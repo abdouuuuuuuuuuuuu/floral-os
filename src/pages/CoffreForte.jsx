@@ -135,7 +135,12 @@ function AddTransactionModal({ isOpen, onClose, onSubmit, submitting, initialTyp
   const handleSubmit = async (e) => {
     e.preventDefault()
     const numAmount = Number(amount)
-    if (!amount || !Number.isFinite(numAmount) || numAmount <= 0) return
+    if (amount === '' || !Number.isFinite(numAmount) || numAmount < 0) return
+    if (numAmount === 0) {
+      // An empty drawer is allowed at opening, but never by accident.
+      if (formType !== 'opening') return
+      if (!window.confirm('Open the register with an empty drawer (0 DA)?')) return
+    }
     try { await onSubmit(formType, numAmount, description, category, source) } catch {}
   }
 
@@ -179,7 +184,7 @@ function AddTransactionModal({ isOpen, onClose, onSubmit, submitting, initialTyp
           </div>
           <div>
             <label htmlFor="tx-amount" className="block text-sm font-medium text-gray-700 mb-1.5">Amount (DA)</label>
-            <input id="tx-amount" type="number" step="1" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0"
+            <input id="tx-amount" type="number" step="1" min={formType === 'opening' ? 0 : 1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0"
               className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none text-lg font-semibold text-center" required autoFocus />
           </div>
           <div>

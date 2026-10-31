@@ -530,7 +530,7 @@ export function useCashRegister() {
   // ─── Set opening balance ───────────────────────────────────────────────────────
   const setOpeningBalance = useCallback(async (amount) => {
     const openingAmount = toIntegerAmount(amount)
-    if (Number.isNaN(openingAmount) || openingAmount <= 0) {
+    if (Number.isNaN(openingAmount) || openingAmount < 0) {
       throw new Error('Invalid opening balance')
     }
 
