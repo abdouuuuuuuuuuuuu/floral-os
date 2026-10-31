@@ -389,7 +389,23 @@ function Checkout() {
       // createOrder returns { order, warnings } — the RPC wraps the order,
       // its items, the stock decrement AND the cash register entry in one
       // transaction.
-      const { order, warnings } = await createOrder({ ...orderInput, requestId: requestIdRef.current })
+      const createResult = await createOrder({ ...orderInput, requestId: requestIdRef.current })
+
+      // No internet: the sale is queued and will finalize when the connection
+      // returns. Clear the cart and send the cashier to Orders, where the
+      // order (and its receipt) appear once it syncs.
+      if (createResult.queued) {
+        try {
+          sessionStorage.removeItem('blossom-checkout-request-id')
+          sessionStorage.removeItem('blossom-checkout-attempt')
+        } catch { /* ignore */ }
+        clearCart()
+        addNotification('No internet — sale saved and will finalize automatically when you reconnect. It will appear in Orders then.', 'warning')
+        navigate('/orders', { replace: true })
+        return
+      }
+
+      const { order, warnings } = createResult
 
       let routeNeedsFollowUp = false
       if (!isQuickSale && deliveryMethod !== 'pickup' && selectedDeliveryPlace) {

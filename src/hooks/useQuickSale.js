@@ -118,7 +118,7 @@ export function useQuickSale() {
       const loyaltyDiscount = loyaltyDiscountForPoints(loyaltyPointsToRedeem)
 
       try {
-        const { order, warnings } = await createOrder({
+        const result = await createOrder({
           clientName: snapshot.customerName,
           clientPhone: snapshot.customerPhone,
           customerId: snapshot.customerId,
@@ -140,6 +140,19 @@ export function useQuickSale() {
         })
 
         clearQuickCart()
+
+        // Offline: the sale is safely queued and will finalize automatically
+        // when the connection returns. No order number or receipt yet.
+        if (result.queued) {
+          return {
+            success: true,
+            queued: true,
+            total: Math.max(0, snapshot.total - loyaltyDiscount),
+            customerName: snapshot.customerName,
+          }
+        }
+
+        const { order, warnings } = result
 
         return {
           success: true,

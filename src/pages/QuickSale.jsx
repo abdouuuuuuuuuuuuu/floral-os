@@ -282,6 +282,17 @@ function QuickSale() {
       return
     }
 
+    if (result.success && result.queued) {
+      // No internet: the sale is held and will finalize on its own. Reset for
+      // the next customer; the receipt prints from Orders once it syncs.
+      setShowPaymentStep(false)
+      addNotification(
+        `No internet — sale saved (${Number(result.total || 0).toLocaleString('fr-FR')} DA). It will finalize automatically when you reconnect; print the receipt from Orders then.`,
+        'warning'
+      )
+      return
+    }
+
     if (result.success) {
       // The cash_in entry is written inside create_order(). The old
       // logQuickSalePayment() call here created a second row per sale.

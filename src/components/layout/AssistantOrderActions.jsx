@@ -371,6 +371,14 @@ export function AssistantOrderEditor({ mode, order, role, initialPrompt = '', in
           createRequestRef.current = { signature: createSignature, id: makeRequestId() }
         }
         const result = await createOrder({ ...createPayload, requestId: createRequestRef.current.id })
+        // Offline: the sale is queued and will finalize on reconnect.
+        if (result.queued) {
+          setStockWarning('')
+          setSaved(true)
+          setError('No internet — the order is saved and will finalize automatically when you reconnect. It will appear in Orders then.')
+          onSuccess?.()
+          return result
+        }
         announceOrdersChanged()
         setCreatedOrder({
           ...result.order,

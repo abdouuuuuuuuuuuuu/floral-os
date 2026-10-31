@@ -9,6 +9,7 @@
 import { supabase } from './supabase'
 import { translateOrderError } from './orderErrors'
 import { normalizeRedeemedPoints } from './loyalty'
+import { enqueueSale, isNetworkError } from './offlineQueue'
 export { translateOrderError } from './orderErrors'
 
 function makeRequestId() {
@@ -117,24 +118,34 @@ export async function createOrder({
 
   const safeRequestId = requestId || makeRequestId()
   const redeemPoints = normalizeRedeemedPoints(loyaltyPointsToRedeem)
-  const { data, error } = redeemPoints > 0
-    ? await supabase.rpc('blossom_create_loyalty_order', {
-        p_order: payload,
-        p_items: itemPayload,
-        p_request_id: safeRequestId,
-        p_points_to_redeem: redeemPoints,
-      })
-    : await supabase.rpc('blossom_create_order', {
-        p_order: payload,
-        p_items: itemPayload,
-        p_request_id: safeRequestId,
-      })
+  const call = redeemPoints > 0
+    ? { fn: 'blossom_create_loyalty_order', params: { p_order: payload, p_items: itemPayload, p_request_id: safeRequestId, p_points_to_redeem: redeemPoints } }
+    : { fn: 'blossom_create_order', params: { p_order: payload, p_items: itemPayload, p_request_id: safeRequestId } }
 
-  if (error) throw new Error(translateOrderError(error))
+  // Offline or mid-blip: queue the exact server call and let it replay when
+  // the connection returns. The server still assigns the order number and
+  // stock, so nothing is faked on the device. Idempotent on the request id.
+  if (!navigator.onLine) {
+    await enqueueSale({
+      requestId: safeRequestId, kind: 'create_order', fn: call.fn, params: call.params,
+      meta: { total: payload.total_amount, clientName: payload.client_name, orderType },
+    })
+    return { queued: true, requestId: safeRequestId, order: null, warnings: { negative_stock: [] } }
+  }
 
-  return {
-    order: data.order,
-    warnings: data.warnings ?? { negative_stock: [] },
+  try {
+    const { data, error } = await supabase.rpc(call.fn, call.params)
+    if (error) throw new Error(translateOrderError(error))
+    return { order: data.order, warnings: data.warnings ?? { negative_stock: [] } }
+  } catch (err) {
+    if (isNetworkError(err)) {
+      await enqueueSale({
+        requestId: safeRequestId, kind: 'create_order', fn: call.fn, params: call.params,
+        meta: { total: payload.total_amount, clientName: payload.client_name, orderType },
+      })
+      return { queued: true, requestId: safeRequestId, order: null, warnings: { negative_stock: [] } }
+    }
+    throw err instanceof Error ? err : new Error(translateOrderError(err))
   }
 }
 
