@@ -39,6 +39,47 @@ function normalizeMethod(value) {
   return 'cash'
 }
 
+// Per-rail reconciliation for a day's cash_register rows: expected (full drawer
+// before any overnight banking) vs the counts recorded at closing. Returns null
+// until the day is closed with per-pocket counts. Shared by the day view and
+// the printed slip.
+function reconcileDay(rows) {
+  const list = rows || []
+  const closing = list.find((t) => t.transaction_type === 'closing')
+  if (!closing || closing.counted_cash == null) return null
+  const opening = Number(list.find((t) => t.transaction_type === 'opening')?.amount || 0)
+  const sum = (type, method, excludeBanked = false) => list
+    .filter((t) => t.transaction_type === type
+      && normalizeMethod(t.payment_method) === method
+      && !(excludeBanked && t.category === 'Banked overnight'))
+    .reduce((acc, t) => acc + (Number(t.amount) || 0), 0)
+  const expected = {
+    cash: opening + sum('cash_in', 'cash') - sum('cash_out', 'cash', true),
+    baridimob: sum('cash_in', 'baridimob') - sum('cash_out', 'baridimob'),
+    usd: sum('cash_in', 'usd') - sum('cash_out', 'usd'),
+  }
+  const counted = {
+    cash: Number(closing.counted_cash || 0),
+    baridimob: Number(closing.counted_baridimob || 0),
+    usd: Number(closing.counted_usd || 0),
+  }
+  const rails = [
+    { key: 'cash', label: 'Cash drawer', expected: expected.cash, counted: counted.cash },
+    { key: 'baridimob', label: 'BaridiMob', expected: expected.baridimob, counted: counted.baridimob },
+    { key: 'usd', label: 'USDT (DZD equiv.)', expected: expected.usd, counted: counted.usd },
+  ].map((r) => ({ ...r, diff: r.counted - r.expected }))
+  const countedTotal = counted.cash + counted.baridimob + counted.usd
+  const expectedTotal = expected.cash + expected.baridimob + expected.usd
+  return {
+    rails,
+    countedTotal,
+    expectedTotal,
+    variance: countedTotal - expectedTotal,
+    banked: Number(closing.banked_overnight || 0),
+    float: Number(closing.amount || 0),
+  }
+}
+
 const transactionTypes = {
   opening: { label: 'Opening Balance', icon: Unlock, color: 'text-emerald-700', bg: 'bg-emerald-100', border: 'border-emerald-200' },
   cash_in: { label: 'Cash In', icon: ArrowUpCircle, color: 'text-teal-700', bg: 'bg-teal-100', border: 'border-teal-200' },
@@ -793,38 +834,9 @@ function CoffreForte() {
   const selectedDayExpected = Number(selectedDayData?.opening_balance || 0) + selectedDayCashIn - selectedDayCashOut
   const selectedDayVariance = Number(selectedDayData?.closing_balance || 0) - selectedDayExpected
 
-  // Per-rail reconciliation for a closed day: expected (full drawer, before any
-  // overnight banking) vs the counts actually recorded at closing.
-  const dayReconcile = useMemo(() => {
-    const rows = dayTransactions || []
-    const closing = rows.find((t) => t.transaction_type === 'closing')
-    if (!closing || closing.counted_cash == null) return null
-    const opening = Number(rows.find((t) => t.transaction_type === 'opening')?.amount || 0)
-    const sum = (type, method, excludeBanked = false) => rows
-      .filter((t) => t.transaction_type === type
-        && normalizeMethod(t.payment_method) === method
-        && !(excludeBanked && t.category === 'Banked overnight'))
-      .reduce((acc, t) => acc + (Number(t.amount) || 0), 0)
-    const expected = {
-      cash: opening + sum('cash_in', 'cash') - sum('cash_out', 'cash', true),
-      baridimob: sum('cash_in', 'baridimob') - sum('cash_out', 'baridimob'),
-      usd: sum('cash_in', 'usd') - sum('cash_out', 'usd'),
-    }
-    const counted = {
-      cash: Number(closing.counted_cash || 0),
-      baridimob: Number(closing.counted_baridimob || 0),
-      usd: Number(closing.counted_usd || 0),
-    }
-    return {
-      banked: Number(closing.banked_overnight || 0),
-      float: Number(closing.amount || 0),
-      rails: [
-        { key: 'cash', label: 'Cash drawer', expected: expected.cash, counted: counted.cash },
-        { key: 'baridimob', label: 'BaridiMob', expected: expected.baridimob, counted: counted.baridimob },
-        { key: 'usd', label: 'USDT (DZD equiv.)', expected: expected.usd, counted: counted.usd },
-      ].map((r) => ({ ...r, diff: r.counted - r.expected })),
-    }
-  }, [dayTransactions])
+  // Per-rail reconciliation, for the opened calendar day and for today.
+  const dayReconcile = useMemo(() => reconcileDay(dayTransactions), [dayTransactions])
+  const todayReconcile = useMemo(() => reconcileDay(transactions), [transactions])
 
   useEffect(() => {
     const panel = searchParams.get('panel')
@@ -867,7 +879,10 @@ function CoffreForte() {
     })
     const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
-    const diff = closingBalance - computedBalance
+    // After overnight banking, computedBalance/closingBalance reflect the float.
+    // Reconcile against the full counted total so the slip's verdict is the
+    // real variance, and show the per-rail breakdown when it was recorded.
+    const diff = todayReconcile ? todayReconcile.variance : (closingBalance - computedBalance)
     const cashOutCount = transactions.filter((t) => t.transaction_type === 'cash_out').length
 
     // Three states, each with a plain-language line so whoever reads the
@@ -919,18 +934,37 @@ function CoffreForte() {
       <div class="divider"></div>
 
       <div class="row" style="font-size:14px;font-weight:900">
-        <span>Expected total</span><span>${money(computedBalance)}</span>
+        <span>Expected total</span><span>${money(todayReconcile ? todayReconcile.expectedTotal : computedBalance)}</span>
       </div>
       <div style="font-size:9px;margin:0 0 5px 0">Opening + cash in - cash out</div>
 
+      ${todayReconcile ? `
+      <div style="font-size:9px;font-weight:700;margin:4px 0 2px 0">COUNTED BY RAIL</div>
+      ${todayReconcile.rails.map((r) => `
+        <div class="row" style="font-size:12px">
+          <span>${r.label}</span><span>${money(r.counted)}${r.diff !== 0 ? ` (${r.diff > 0 ? '+' : ''}${r.diff.toLocaleString('fr-FR')})` : ''}</span>
+        </div>`).join('')}
+      ` : ''}
+
       <div class="row" style="font-size:14px;font-weight:900">
-        <span>Counted total</span><span>${money(closingBalance)}</span>
+        <span>Counted total</span><span>${money(todayReconcile ? todayReconcile.countedTotal : closingBalance)}</span>
       </div>
       <div style="font-size:9px;margin:0 0 6px 0">What was physically counted at closing</div>
 
       <div class="total-row">
         <span>${verdict.label}</span><span>${verdict.amount}</span>
       </div>
+
+      ${todayReconcile && todayReconcile.banked > 0 ? `
+      <div class="divider"></div>
+      <div class="row" style="font-size:13px">
+        <span>Banked overnight</span><span>- ${money(todayReconcile.banked)}</span>
+      </div>
+      <div class="row" style="font-size:14px;font-weight:900">
+        <span>Float to tomorrow</span><span>${money(todayReconcile.float)}</span>
+      </div>
+      <div style="font-size:9px;margin:0 0 5px 0">Stays in the drawer; becomes tomorrow's opening</div>
+      ` : ''}
       <div style="font-size:10px;text-align:center;margin-top:5px;line-height:1.35">
         ${verdict.note}
       </div>
@@ -950,7 +984,7 @@ function CoffreForte() {
     printThermalReceipt(htmlContent, 'Daily Cash Report', './logo-Black.png')
   }, [
     transactions, cashInTransactions, openingBalance, todayCashIn,
-    todayCashOut, closingBalance, computedBalance, shopName,
+    todayCashOut, closingBalance, computedBalance, shopName, todayReconcile,
   ])
 
   // ─── A LEDGER, NOT A CALENDAR ────────────────────────────────────
