@@ -116,7 +116,7 @@ BEGIN
       WHEN 'void' THEN 'Order cancelled' || coalesce(' #' || m.order_number, '')
       WHEN 'restore' THEN 'Cancellation undone' || coalesce(' #' || m.order_number, '')
       WHEN 'reopen' THEN 'Order reopened' || coalesce(' #' || m.order_number, '')
-      WHEN 'delete' THEN 'Order deleted' || coalesce(' #' || m.order_number, '')
+      WHEN 'delete' THEN 'Order permanently deleted' || coalesce(' #' || m.order_number, '')
       WHEN 'archive' THEN 'Order archived' || coalesce(' #' || m.order_number, '')
       WHEN 'status' THEN 'Status changed' || coalesce(' #' || m.order_number, '')
       WHEN 'waste' THEN 'Flower waste recorded'
