@@ -2,13 +2,11 @@
 -- 1. A cashier may discount an order by at most 20% below catalog prices.
 --    Larger discounts need an owner, manager or florist account. Petal
 --    (loyalty) rewards do not count toward the limit.
--- 2. Once today's register is closed, later payments and refunds on existing
---    orders are refused until the next opening. New after-hours sales keep
---    their existing carry-into-next-opening behaviour.
--- 3. The register may be opened with 0 DA (the app asks for confirmation).
+-- 2. The register may be opened with 0 DA (the app asks for confirmation).
+--    (Payments after closing are handled in 20261031110000.)
 --
--- Rules 2 and 3 patch the live function definitions in place, like the
--- 50-point loyalty migration, and stop if a definition is not as expected.
+-- Rule 2 patches the live function definition in place, like the 50-point
+-- loyalty migration, and stops if the definition is not as expected.
 
 -- ─── 1. Cashier discount limit ──────────────────────────────────────────────
 -- A deferred constraint trigger runs at commit, after every order line,
@@ -65,31 +63,14 @@ CREATE CONSTRAINT TRIGGER orders_cashier_discount_limit
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION public.blossom_enforce_cashier_discount_limit();
 
--- ─── 2 & 3. Register rules ──────────────────────────────────────────────────
+-- ─── 2. Opening with 0 DA ───────────────────────────────────────────────────
 DO $migration$
 DECLARE
   v_definition text;
   v_anchor text;
 BEGIN
-  v_definition := pg_get_functiondef(
-    'public.record_order_payment(uuid,uuid,numeric,text,text,text)'::regprocedure
-  );
   -- Anchors are single lines so the patch works whatever line endings the
-  -- function was saved with. The closed-register check goes just before the
-  -- cancelled-order check, after the order row has been locked.
-  v_anchor := 'IF v_order.status = ''cancelled'' THEN';
-  IF position(v_anchor IN v_definition) = 0
-     OR position('payments cannot be recorded on a cancelled order' IN v_definition) = 0 THEN
-    RAISE EXCEPTION 'Unexpected record_order_payment definition; update the register rules migration.';
-  END IF;
-  v_definition := replace(v_definition, v_anchor,
-    'IF EXISTS (SELECT 1 FROM public.cash_register'
-    || ' WHERE register_date = (now() AT TIME ZONE ''Africa/Algiers'')::date'
-    || ' AND transaction_type = ''closing'') THEN'
-    || ' RAISE EXCEPTION ''the register is closed for today; record this after the next opening'';'
-    || ' END IF; ' || v_anchor);
-  EXECUTE v_definition;
-
+  -- function was saved with.
   v_definition := pg_get_functiondef(
     'public.open_cash_register_with_after_hours(numeric)'::regprocedure
   );

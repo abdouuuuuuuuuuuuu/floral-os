@@ -31,7 +31,6 @@ export function translateOrderError(error) {
   if (msg.includes('can delete orders')) return 'Only an owner can delete orders.'
   if (msg.includes('role cannot record order payments')) return 'You do not have permission to record order payments.'
   if (msg.includes('role cannot refund order payments')) return 'Only an owner or manager can record refunds.'
-  if (msg.includes('register is closed for today')) return 'The register is closed for today. Record this payment after the next opening.'
   if (msg.includes('discount exceeds the cashier limit')) return 'Cashiers can discount up to 20% below catalog prices. Ask a manager to apply this price. No order was saved.'
   if (msg.includes('role cannot delay orders')) return 'You do not have permission to reschedule orders.'
   if (msg.includes('order not found')) return 'This order could not be found. Refresh the order list and try again.'
