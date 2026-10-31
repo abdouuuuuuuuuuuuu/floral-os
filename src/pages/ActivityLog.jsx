@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom'
 import {
   Activity, RefreshCw, Search, ShoppingCart, Banknote, Undo2, XCircle, Trash2,
   RotateCcw, Archive, ArrowRightLeft, Flower2, Vault, Users, Sparkles, Circle,
+  ChevronDown, MapPin, UserRound, Clock,
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import { supabase } from '../lib/supabase'
@@ -56,6 +57,53 @@ function dayBounds(fromDay, toDay) {
 
 const dayKey = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso))
 const timeLabel = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: TZ })
+const fullTime = (iso) => new Date(iso).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: TZ })
+
+// Pull the human-meaningful "what" out of an audit detail object.
+function detailFacts(row) {
+  const d = row.detail || {}
+  const pay = d.payment_event || {}
+  const out = []
+  const add = (label, value) => { if (value != null && value !== '' && value !== 0) out.push([label, value]) }
+  const da = (n) => `${Number(n || 0).toLocaleString('fr-FR')} DA`
+  const methodLabel = (m) => ({ cash: 'Cash', baridimob: 'BaridiMob', usd: 'USDT' }[m] || m)
+
+  if (row.kind === 'sale') {
+    add('Order total', da(d.total_amount))
+    add('Items', d.item_count)
+    if (Array.isArray(d.price_overrides) && d.price_overrides.length) {
+      add('Price overrides', d.price_overrides.map((o) => `${o.product_name}: ${da(o.catalog_unit_price)}→${da(o.charged_unit_price)} ×${o.quantity}`).join('; '))
+    }
+  } else if (row.kind === 'payment' || row.kind === 'refund') {
+    add(row.kind === 'refund' ? 'Refunded' : 'Paid', da(pay.amount ?? d.amount))
+    add('Method', methodLabel(pay.payment_method))
+    add('Note', pay.notes)
+  } else if (row.kind === 'archive') {
+    add('Reason', d.reason)
+    add('Cash rows reversed', d.cash_rows_reversed)
+    add('Petals reversed', d.petals_reversed)
+  } else if (row.kind === 'delete') {
+    add('Order total', da(d.total_amount))
+    add('Amount paid', da(d.amount_paid))
+    if (d.permanent) out.push(['Permanent', 'Yes — order row removed'])
+  } else if (row.kind === 'loyalty') {
+    add('Card', d.code)
+    add('Customer', d.customer_name)
+  } else if (row.kind === 'register') {
+    add('Amount', da(row.amount))
+    add('Register date', d.register_date)
+  } else if (row.kind === 'waste') {
+    add('Amount', da(row.amount))
+  }
+  // Changes (edit/status/void): show what moved from → to.
+  const before = row.before || {}
+  if (['status', 'void', 'restore', 'reopen'].includes(row.kind)) {
+    if (before.status && d.restored_status && before.status !== d.restored_status) add('Status', `${before.status} → ${d.restored_status}`)
+    else if (before.status && d.status && before.status !== d.status) add('Status', `${before.status} → ${d.status}`)
+    add('Reason', d.reason || before.void_reason)
+  }
+  return out
+}
 function dayHeading(key) {
   const todayKey = localDate()
   const label = new Date(`${key}T12:00:00Z`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
@@ -73,6 +121,7 @@ function ActivityLog() {
   const [actor, setActor] = useState('')
   const [kind, setKind] = useState('')
   const [query, setQuery] = useState('')
+  const [openRow, setOpenRow] = useState(null)
   const [staff, setStaff] = useState([])
   const [feed, setFeed] = useState([])
   const [summary, setSummary] = useState([])
@@ -264,24 +313,69 @@ function ActivityLog() {
                   const meta = KIND[row.kind] || KIND.other
                   const { Icon } = meta
                   const amountTone = meta.flow === 'in' ? 'text-emerald-700' : meta.flow === 'out' ? 'text-rose-700' : 'text-slate-500'
+                  const rowId = `${row.at}-${index}`
+                  const isOpen = openRow === rowId
+                  const facts = isOpen ? detailFacts(row) : []
                   return (
-                    <li key={`${row.at}-${index}`} className="flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50/70 sm:px-4">
-                      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${TONE[meta.tone]}`}><Icon size={15} /></span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm text-gray-900">{row.summary}</p>
-                        <p className="truncate text-xs text-gray-500">
-                          <span className="font-medium text-gray-600">{staffName[row.actor_id] || row.actor_name}</span>
-                          <span className="capitalize"> · {row.actor_role}</span>
-                        </p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        {row.amount != null && (
-                          <div className={`text-sm font-semibold tabular-nums ${amountTone}`}>
-                            {meta.flow === 'out' ? '−' : ''}{money(row.amount)} DA
-                          </div>
-                        )}
-                        <div className="text-xs tabular-nums text-slate-400">{timeLabel(row.at)}</div>
-                      </div>
+                    <li key={rowId}>
+                      <button type="button" onClick={() => setOpenRow(isOpen ? null : rowId)}
+                        aria-expanded={isOpen}
+                        className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50/70 sm:px-4">
+                        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${TONE[meta.tone]}`}><Icon size={15} /></span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm text-gray-900">{row.summary}</p>
+                          <p className="truncate text-xs text-gray-500">
+                            <span className="font-medium text-gray-600">{staffName[row.actor_id] || row.actor_name}</span>
+                            <span className="capitalize"> · {row.actor_role}</span>
+                            {row.area ? <span className="text-slate-400"> · {row.area}</span> : null}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          {row.amount != null && (
+                            <div className={`text-sm font-semibold tabular-nums ${amountTone}`}>
+                              {meta.flow === 'out' ? '−' : ''}{money(row.amount)} DA
+                            </div>
+                          )}
+                          <div className="text-xs tabular-nums text-slate-400">{timeLabel(row.at)}</div>
+                        </div>
+                        <ChevronDown size={15} className={`shrink-0 text-slate-300 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {isOpen && (
+                        <div className="border-t border-slate-100 bg-slate-50/60 px-3 py-3 sm:px-4">
+                          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                            <div className="flex items-start gap-2">
+                              <UserRound size={14} className="mt-0.5 shrink-0 text-slate-400" />
+                              <div><dt className="text-2xs uppercase tracking-wide text-slate-400">Who</dt>
+                                <dd className="text-sm text-gray-800">{staffName[row.actor_id] || row.actor_name}<span className="capitalize text-gray-400"> · {row.actor_role}</span>{row.actor_username ? <span className="text-gray-400"> · @{row.actor_username}</span> : null}</dd></div>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <Clock size={14} className="mt-0.5 shrink-0 text-slate-400" />
+                              <div><dt className="text-2xs uppercase tracking-wide text-slate-400">When</dt>
+                                <dd className="text-sm text-gray-800">{fullTime(row.at)}</dd></div>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <MapPin size={14} className="mt-0.5 shrink-0 text-slate-400" />
+                              <div><dt className="text-2xs uppercase tracking-wide text-slate-400">Where</dt>
+                                <dd className="text-sm text-gray-800">{row.area || '—'}{row.order_number ? ` · Order #${row.order_number}` : ''}</dd></div>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <Activity size={14} className="mt-0.5 shrink-0 text-slate-400" />
+                              <div><dt className="text-2xs uppercase tracking-wide text-slate-400">What</dt>
+                                <dd className="text-sm text-gray-800">{meta.label}</dd></div>
+                            </div>
+                          </dl>
+                          {facts.length > 0 && (
+                            <dl className="mt-3 grid gap-x-6 gap-y-1.5 border-t border-slate-200/70 pt-3 sm:grid-cols-2">
+                              {facts.map(([label, value]) => (
+                                <div key={label} className="flex justify-between gap-3 sm:block">
+                                  <dt className="text-2xs uppercase tracking-wide text-slate-400">{label}</dt>
+                                  <dd className="text-sm text-gray-800">{String(value)}</dd>
+                                </div>
+                              ))}
+                            </dl>
+                          )}
+                        </div>
+                      )}
                     </li>
                   )
                 })}
