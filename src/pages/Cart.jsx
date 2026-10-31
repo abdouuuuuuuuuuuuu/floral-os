@@ -6,6 +6,7 @@ import {
   Flower2, Candy, Gift,
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
+import RecentQuickSales from '../components/RecentQuickSales'
 import { useProducts } from '../hooks/useProducts'
 import { useCartContext } from '../context/CartContext'
 import { useNotification } from '../context/NotificationContext'
@@ -408,7 +409,7 @@ function Cart() {
             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-gray-900">{startedAsQuickSale ? 'Build a quick sale' : 'Build an order'}</h1>
             <p className="mt-1 text-sm text-gray-500">Search the catalog, add what you need, then review the cart.</p>
           </div>
-          {startedAsQuickSale && <span className="rounded-full border border-accent/15 bg-accent-subtle px-3 py-1.5 text-xs font-semibold text-accent">Quick sale · no delivery</span>}
+          {startedAsQuickSale && <div className="flex flex-wrap items-center gap-2"><RecentQuickSales /><span className="rounded-full border border-accent/15 bg-accent-subtle px-3 py-1.5 text-xs font-semibold text-accent">Quick sale · no delivery</span></div>}
         </header>
 
         <div className="grid min-w-0 grid-cols-1 gap-5 xl:h-[calc(100vh-12rem)] xl:min-h-[32rem] xl:grid-cols-[minmax(0,1fr)_350px]">
