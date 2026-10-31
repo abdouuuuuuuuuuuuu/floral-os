@@ -74,6 +74,10 @@ BEGIN
   v_definition := pg_get_functiondef(
     'public.open_cash_register_with_after_hours(numeric)'::regprocedure
   );
+  -- Already applied: nothing to do, so the migration can be re-run safely.
+  IF position('opening balance cannot be negative' IN v_definition) > 0 THEN
+    RETURN;
+  END IF;
   v_anchor := 'IF v_amount IS NULL OR v_amount <= 0 THEN';
   IF position(v_anchor IN v_definition) = 0
      OR position('opening balance must be greater than zero' IN v_definition) = 0 THEN
