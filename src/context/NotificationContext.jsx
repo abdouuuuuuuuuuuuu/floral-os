@@ -84,17 +84,11 @@ export function NotificationProvider({ children }) {
       .channel(`order-notifications-${authUserId}`)
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'order_notifications', filter: `recipient_id=eq.${authUserId}`,
-      }, (payload) => {
+      }, () => {
         if (!active) return
-        const row = payload.new
-        const eventId = row.order_event_id
-        void supabase.from('order_events')
-          .select('order_number, summary, actor_name')
-          .eq('id', eventId)
-          .maybeSingle()
-          .then(({ data }) => {
-            if (active && data) addNotification(`Order #${data.order_number} updated${data.actor_name ? ` by ${data.actor_name}` : ''}: ${data.summary}`, 'info', { history: false })
-          })
+        // Order updates land in the bell (and its unread badge) silently.
+        // They must not pop a toast: those fire from other people's routine
+        // activity and interrupt the cashier at seemingly random moments.
         clearTimeout(reloadTimer)
         reloadTimer = setTimeout(() => { if (active) void loadOrderNotifications() }, 250)
       })
