@@ -25,7 +25,6 @@ import CoffreForte from './pages/CoffreForte'
 import Suppliers from './pages/Suppliers'
 import OrderDetail from './pages/OrderDetail'
 import Forbidden from './pages/Forbidden'
-import LiveCursorPresence from './components/layout/LiveCursorPresence'
 import BlossomAssistant from './components/layout/BlossomAssistant'
 import ToastContainer from './components/ui/ToastContainer'
 import ErrorBoundary from './components/common/ErrorBoundary'
@@ -60,7 +59,6 @@ function AppRoutes() {
   const location = useLocation()
   return (
     <ErrorBoundary resetKey={location.pathname}>
-      <LiveCursorPresence />
       <BlossomAssistant />
       <ToastContainer />
       <Routes>

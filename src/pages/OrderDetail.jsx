@@ -17,7 +17,7 @@ import { printOrderReceipt } from '../utils/orderReceipt'
 import { archiveOrder, reopenVoidedOrder, restoreVoidedOrder, saveOrderEdits, setOrderStatus, voidOrder } from '../lib/orders'
 import { useUndo } from '../context/UndoContext'
 import { orderStatusTargets } from '../lib/orderStatus'
-import { formatBusinessDate } from '../lib/businessDate.js'
+import { formatBusinessDate, formatBusinessDateTime } from '../lib/businessDate.js'
 import { formatDistance, shipByDate, transitDaysForRoadDistance } from '../lib/shippingPlan.js'
 
 const statusConfig = {
@@ -426,8 +426,8 @@ function OrderDetail() {
                 {isEditing ? 'Edit Order' : `Order #${order.order_number}`}
               </h1>
               <p className="text-sm text-slate-400">
-                {new Date(order.created_at).toLocaleDateString('fr-FR', {
-                  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+                Created {formatBusinessDateTime(order.created_at, 'fr-FR', {
+                  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
                 })}
               </p>
             </div>

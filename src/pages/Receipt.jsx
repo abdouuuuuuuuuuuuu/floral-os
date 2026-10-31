@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useNotification } from '../context/NotificationContext'
 import { useShopName } from '../hooks/useShopName'
 import { printThermalReceipt } from '../utils/printThermal'
-import { formatBusinessDate } from '../lib/businessDate.js'
+import { formatBusinessDate, formatBusinessDateTime } from '../lib/businessDate.js'
 import { shipByDate, transitDaysForRoadDistance } from '../lib/shippingPlan.js'
 import OrderSuccessAnimation from '../components/common/OrderSuccessAnimation'
 
@@ -59,6 +59,7 @@ function Receipt() {
         const orderData = {
           id: data[0].id,
           order_number: data[0].order_number,
+          created_at: orderMeta?.created_at || data[0].created_at || null,
           client_name: data[0].client_name,
           client_phone: data[0].client_phone,
           delivery_method: data[0].delivery_method,
@@ -148,6 +149,7 @@ function Receipt() {
       <div style="text-align:center;margin-bottom:8px;">
         <div style="font-size:18px;font-weight:bold;letter-spacing:2px;margin-bottom:2px;">${escapeHtml(shopName)}</div>
         <div style="font-size:14px;font-weight:bold;margin-top:6px;">ORDER #${order.order_number}</div>
+        ${order.created_at ? `<div style="font-size:11px;margin-top:2px;">${escapeHtml(formatBusinessDateTime(order.created_at))}</div>` : ''}
       </div>
       <div class="divider"></div>
       <div style="margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:6px;">
@@ -256,6 +258,9 @@ function Receipt() {
               <h1 className="font-serif text-2xl font-semibold text-slate-900">{shopName}</h1>
               <p className="shrink-0 text-sm font-bold text-slate-600">#{order.order_number}</p>
             </div>
+            {order.created_at && (
+              <p className="mt-1 text-xs tabular-nums text-slate-500">Created {formatBusinessDateTime(order.created_at)}</p>
+            )}
           </header>
 
           <div className="space-y-4 p-4 sm:p-5">

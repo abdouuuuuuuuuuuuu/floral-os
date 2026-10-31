@@ -29,3 +29,15 @@ export function formatBusinessDate(value, locale = 'fr-FR', options = {}) {
   if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day) return ''
   return date.toLocaleDateString(locale, { ...options, timeZone: BUSINESS_TIME_ZONE })
 }
+
+/** Exact moment something happened, in shop time: "31/10/2026 14:32". */
+export function formatBusinessDateTime(value, locale = 'fr-FR', options = {}) {
+  const date = value ? new Date(value) : null
+  if (!date || !Number.isFinite(date.getTime())) return ''
+  return date.toLocaleString(locale, {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+    ...options,
+    timeZone: BUSINESS_TIME_ZONE,
+  })
+}

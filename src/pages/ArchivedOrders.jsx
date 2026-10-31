@@ -132,6 +132,7 @@ function ArchivedOrders() {
                       <span className="font-semibold text-gray-800">Total {money(order.total_amount)} DA</span>
                       <span className="text-gray-500">Paid {money(order.amount_paid)} DA</span>
                       {due > 0 && <span className="font-semibold text-rose-700">Due {money(due)} DA</span>}
+                      <span className="inline-flex items-center gap-1 text-gray-500"><CalendarClock size={13} /> Created {dateTime(order.created_at)}</span>
                       <span className="inline-flex items-center gap-1 text-gray-500"><CalendarClock size={13} /> Archived {dateTime(order.deleted_at)}</span>
                     </div>
                     {!!order.order_items?.length && <p className="mt-3 text-xs text-gray-600">{order.order_items.map((item) => `${item.quantity} × ${item.product_name || 'Item'}`).join(' · ')}</p>}

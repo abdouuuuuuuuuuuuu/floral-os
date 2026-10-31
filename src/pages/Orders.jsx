@@ -25,7 +25,7 @@ import { orderStatusTargets } from '../lib/orderStatus'
 import { archiveOrder } from '../lib/orders'
 import AlgerianPlaceSearch from '../components/AlgerianPlaceSearch'
 import { getShippingPlan, localDateString, shipByDate } from '../lib/shippingPlan'
-import { addCalendarDays, formatBusinessDate } from '../lib/businessDate.js'
+import { addCalendarDays, formatBusinessDate, formatBusinessDateTime } from '../lib/businessDate.js'
 import { supabase } from '../lib/supabase'
 import { getFunctionErrorMessage } from '../lib/functionError'
 
@@ -552,12 +552,12 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
             </p>
           )}
         </div>
-        <div className="col-start-1 row-start-3 min-w-0 2xl:w-[112px] 2xl:shrink-0">
+        <div className="col-start-1 row-start-3 min-w-0 2xl:w-[132px] 2xl:shrink-0">
           <p className="flex items-center gap-1 text-xs text-gray-500"
-            title={fullStamp(order.created_at)}
+            title={`Created ${fullStamp(order.created_at)} · ${relativeTime(order.created_at)}`}
           >
-            <Calendar size={11} />
-            <span>Created {relativeTime(order.created_at)}</span>
+            <Calendar size={11} className="shrink-0" />
+            <span className="tabular-nums whitespace-nowrap">{formatBusinessDateTime(order.created_at)}</span>
           </p>
           {order.delivery_date && (
             <p className="mt-0.5 flex items-center gap-1 text-2xs text-gray-400">
