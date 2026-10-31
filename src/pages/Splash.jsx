@@ -1,32 +1,27 @@
-import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useShopName } from '../hooks/useShopName'
+import BlossomGlyph from '../components/brand/BlossomGlyph'
 
-function Splash() {
-  const navigate = useNavigate()
-  const shopName = useShopName()  // <-- Move here, at the top
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      navigate('/auth/login')
-    }, 3000)
-
-    return () => clearTimeout(timer)
-  }, [navigate])
+function Splash({ isExiting = false }) {
+  const shopName = useShopName()
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center relative overflow-hidden">
-      <div 
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: `url('/splash-bg.png')` }}
-      />
-      <div className="absolute inset-0 bg-white/20" />
-      <div className="relative z-10 animate-fade-in">
-        <h1 className="font-serif text-6xl md:text-8xl text-primary tracking-wider drop-shadow-lg">
-          {shopName}
-        </h1>
+    <main className={`splash-screen${isExiting ? ' splash-exiting' : ''}`} aria-label={`Opening ${shopName}`}>
+      <div className="splash-light splash-light-a" aria-hidden="true" />
+      <div className="splash-light splash-light-b" aria-hidden="true" />
+      <div className="splash-content" role="status" aria-live="polite">
+        <div className="splash-emblem-wrap" aria-hidden="true">
+          <span className="splash-halo splash-halo-one" />
+          <span className="splash-halo splash-halo-two" />
+          <span className="splash-trail" />
+          <BlossomGlyph className="splash-glyph" />
+        </div>
+        <p className="splash-wordmark">Blossom</p>
+        <p className="splash-caption">{shopName} <span>·</span> Flower studio</p>
+        <div className="splash-progress" aria-hidden="true"><span /></div>
+        <p className="splash-loading-label">Preparing your studio</p>
       </div>
-    </div>
+      <span className="splash-version" aria-hidden="true">A softer start to your day</span>
+    </main>
   )
 }
 

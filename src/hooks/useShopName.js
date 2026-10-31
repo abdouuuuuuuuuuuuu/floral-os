@@ -26,20 +26,23 @@ function initRealtime() {
   if (realtimeInitialized) return
   realtimeInitialized = true
 
-  // 1. Fetch initial value
+  // 1. Fetch initial value.
+  //
+  // Goes through the get_shop_name() RPC rather than reading `settings`
+  // directly. This hook runs on the login and splash screens, before
+  // anyone is signed in, and RLS (correctly) blocks anonymous reads of
+  // the settings table — which holds tax rates and contact details.
+  // The RPC is SECURITY DEFINER and returns only the name.
   supabase
-    .from('settings')
-    .select('shop_name')
-    .eq('id', SETTINGS_ID)
-    .single()
+    .rpc('get_shop_name')
     .then(({ data, error }) => {
       if (error) {
-        console.error('fetchShopName error:', error)
+        console.error('fetchShopName error:', error.message)
         return
       }
-      if (data?.shop_name && data.shop_name !== currentShopName) {
-        currentShopName = data.shop_name
-        document.title = data.shop_name
+      if (data && data !== currentShopName) {
+        currentShopName = data
+        document.title = data
         emit()
       }
     })
@@ -63,11 +66,7 @@ function initRealtime() {
         }
       }
     )
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        console.log('Shop name realtime subscribed')
-      }
-    })
+    .subscribe()
 }
 
 // ── Hook ──────────────────────────────────────────────────────

@@ -1,112 +1,81 @@
 // utils/printThermal.js
 
-/**
- * Process logo for thermal printer:
- * - Resize to max width
- * - Fill transparent areas with white
- * - Boost contrast + darken so grey becomes solid black
- * - Output as small JPEG
- */
-async function processLogoForThermal(blob, maxWidth = 280) {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    const url = URL.createObjectURL(blob)
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const scale = Math.min(1, maxWidth / img.width)
-      canvas.width = Math.floor(img.width * scale)
-      canvas.height = Math.floor(img.height * scale)
-      const ctx = canvas.getContext('2d')
+export async function printThermalReceipt(
+  htmlContent,
+  title = 'Receipt',
+  logoPath = null
+) {
+  const oldIframe = document.getElementById('thermal-print-iframe')
+  if (oldIframe) oldIframe.remove()
 
-      // White background (removes transparency)
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-      // Boost contrast & darken — grey becomes black, but doesn't disappear
-      ctx.filter = 'contrast(400%) brightness(0.5) grayscale(100%)'
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      ctx.filter = 'none'
-
-      URL.revokeObjectURL(url)
-      resolve(canvas.toDataURL('image/jpeg', 0.9))
-    }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error('Logo load failed'))
-    }
-    img.src = url
-  })
-}
-
-export async function printThermalReceipt(htmlContent, title = 'Receipt', logoPath = null) {
-  const old = document.getElementById('thermal-print-iframe')
-  if (old) old.remove()
-
-  // ─── Load & process logo ───────────────────────────────────────────────────
   let logoHtml = ''
+
   if (logoPath) {
     try {
-      const absoluteUrl = new URL(logoPath, window.location.origin).href
-      const res = await fetch(absoluteUrl)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const blob = await res.blob()
+      const absoluteUrl = new URL(logoPath, window.location.href).href
+      const response = await fetch(absoluteUrl)
 
-      const dataUrl = await processLogoForThermal(blob, 280)
-      logoHtml = `<div class="logo-wrap"><img src="${dataUrl}" class="logo" alt="logo" /></div>`
-      console.log('[printThermalReceipt] Logo processed successfully')
-    } catch (err) {
-      console.error('[printThermalReceipt] Logo failed:', err)
+      if (!response.ok) {
+        throw new Error(`Logo request failed: HTTP ${response.status}`)
+      }
+
+      const blob = await response.blob()
+
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+
+      logoHtml = `
+        <div class="logo-wrap">
+          <img src="${dataUrl}" class="logo" alt="Logo" />
+        </div>
+      `
+    } catch (error) {
+      console.error('[printThermalReceipt] Logo failed to load:', error)
     }
   }
 
-  const fontUrl = `${window.location.origin}/fonts/LibertinusMath-Regular.ttf`
-
-  // ─── Create iframe ─────────────────────────────────────────────────────────
   const iframe = document.createElement('iframe')
   iframe.id = 'thermal-print-iframe'
 
-  // CRITICAL: Never use mm here. Only pixels.
-  iframe.style.position = 'fixed'
-  iframe.style.top = '0px'
-  iframe.style.left = '0px'
-  iframe.style.width = '302px'      // 80mm ≈ 302px
-  iframe.style.height = '1px'
-  iframe.style.overflow = 'hidden'
-  iframe.style.border = 'none'
-  iframe.style.visibility = 'hidden'
-  iframe.style.pointerEvents = 'none'
+  Object.assign(iframe.style, {
+    position: 'fixed',
+    top: '0',
+    left: '-10000px',
+    width: '80mm',
+    height: '1px',
+    overflow: 'hidden',
+    border: 'none',
+    pointerEvents: 'none'
+  })
 
   document.body.appendChild(iframe)
 
   const doc = iframe.contentWindow.document
   doc.open()
-
   doc.write(`<!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8">
-    <title>${title}</title>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(title)}</title>
+
     <style>
       @page {
-        margin: 0;
         size: 80mm auto;
+        margin: 0;
       }
 
-      @font-face {
-        font-family: 'Libertinus Math';
-        src: url('${fontUrl}') format('truetype');
-        font-weight: normal;
-        font-style: normal;
-        font-display: swap;
-      }
-
-      /* Force everything to pure black & white */
-      * {
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
         margin: 0;
         padding: 0;
-        box-sizing: border-box;
         color: #000 !important;
-        background-color: #fff !important;
+        background: #fff !important;
         border-color: #000 !important;
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
@@ -116,33 +85,36 @@ export async function printThermalReceipt(htmlContent, title = 'Receipt', logoPa
         opacity: 1 !important;
       }
 
-      html, body {
+      html,
+      body {
         width: 80mm;
         min-width: 80mm;
         max-width: 80mm;
         overflow-x: hidden;
+        background: #fff !important;
       }
 
       body {
-        font-family: 'Libertinus Math', 'Courier New', 'Segoe UI', monospace;
+        font-family: 'Courier New', 'Segoe UI', monospace;
         font-size: 13px;
         line-height: 1.45;
-        padding: 2mm 3mm 25mm 3mm;
         font-weight: 700;
+        padding: 2mm 3mm 2mm 3mm;
       }
 
-      /* Logo */
       .logo-wrap {
         width: 100%;
         text-align: center;
-        margin-bottom: 4px;
+        margin-bottom: 6px;
       }
+
       .logo {
-        width: 45%;
-        max-width: 180px;
-        height: auto;
         display: block;
+        width: 50%;
+        max-width: 200px;
+        height: auto;
         margin: 0 auto;
+        filter: grayscale(100%) contrast(200%) brightness(0.9) !important;
         image-rendering: crisp-edges;
       }
 
@@ -150,35 +122,44 @@ export async function printThermalReceipt(htmlContent, title = 'Receipt', logoPa
         border-top: 1.5px solid #000;
         margin: 6px 0;
       }
-      .center { text-align: center; }
+
+      .center {
+        text-align: center;
+      }
+
       .brand {
+        margin-bottom: 2px;
         font-size: 18px;
         font-weight: 900;
         letter-spacing: 1px;
-        margin-bottom: 2px;
       }
+
       .sub {
-        font-size: 11px;
         margin-bottom: 6px;
+        font-size: 11px;
         font-weight: 700;
       }
+
       .order-num {
+        margin-top: 4px;
         font-size: 14px;
         font-weight: 900;
-        margin-top: 4px;
       }
+
       .dt {
-        font-size: 11px;
         margin-bottom: 6px;
+        font-size: 11px;
         font-weight: 700;
       }
+
       .section {
+        margin-bottom: 3px;
         font-size: 11px;
         font-weight: 900;
-        text-transform: uppercase;
-        margin-bottom: 3px;
         letter-spacing: 0.5px;
+        text-transform: uppercase;
       }
+
       .row {
         display: flex;
         justify-content: space-between;
@@ -190,6 +171,7 @@ export async function printThermalReceipt(htmlContent, title = 'Receipt', logoPa
         width: 100%;
         border-collapse: collapse;
       }
+
       td {
         padding: 1px 0;
         font-size: 13px;
@@ -199,65 +181,81 @@ export async function printThermalReceipt(htmlContent, title = 'Receipt', logoPa
       .total-row {
         display: flex;
         justify-content: space-between;
+        margin-top: 3px;
+        padding-top: 3px;
+        border-top: 2px solid #000;
         font-size: 15px;
         font-weight: 900;
-        border-top: 2px solid #000;
-        padding-top: 3px;
-        margin-top: 3px;
       }
+
       .footer {
+        margin-top: 8px;
+        padding-top: 5px;
+        border-top: 1.5px solid #000;
         text-align: center;
         font-size: 10px;
-        margin-top: 10px;
-        padding-top: 6px;
-        border-top: 1.5px solid #000;
         font-weight: 700;
         page-break-inside: avoid;
       }
 
-      .cutter-spacer {
-        height: 20mm;
-        width: 100%;
-        page-break-inside: avoid;
+      a {
+        color: #000 !important;
+        text-decoration: none;
       }
-
-      a { color: #000 !important; text-decoration: none; }
     </style>
   </head>
+
   <body>
     ${logoHtml}
     ${htmlContent}
-    <div class="cutter-spacer"></div>
   </body>
 </html>`)
-
   doc.close()
 
   const win = iframe.contentWindow
-  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
   try {
-    if (doc.fonts && doc.fonts.ready) {
-      await doc.fonts.ready
-    }
-    await wait(500)
+    await new Promise((resolve) => setTimeout(resolve, 600))
 
+    let printStarted = false
+    const markPrintStarted = () => { printStarted = true }
+    win.addEventListener('beforeprint', markPrintStarted, { once: true })
     win.focus()
     win.print()
+    win.removeEventListener('beforeprint', markPrintStarted)
+
+    if (!printStarted) {
+      throw new Error('The browser did not dispatch beforeprint; printing may be blocked in this embedded browser.')
+    }
 
     const cleanup = () => {
-      const el = document.getElementById('thermal-print-iframe')
-      if (el) el.remove()
+      const element = document.getElementById('thermal-print-iframe')
+      if (element) element.remove()
     }
 
     if (win.matchMedia) {
       win.addEventListener('afterprint', cleanup, { once: true })
     }
-    setTimeout(cleanup, 4000)
 
-  } catch (err) {
-    console.error('[printThermalReceipt] Print failed:', err)
-    const el = document.getElementById('thermal-print-iframe')
-    if (el) el.remove()
+    setTimeout(cleanup, 4000)
+    return true
+  } catch (error) {
+    console.error('[printThermalReceipt] Print failed:', error)
+
+    const element = document.getElementById('thermal-print-iframe')
+    if (element) element.remove()
+    return false
   }
 }
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+// Example:
+// await printThermalReceipt(receiptHtml, 'Receipt', '/logo.png')

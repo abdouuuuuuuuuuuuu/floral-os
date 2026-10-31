@@ -1,0 +1,4 @@
+.env
+.supabase-router-secret.env
+data/*
+!data/.gitkeep

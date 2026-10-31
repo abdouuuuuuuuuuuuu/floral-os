@@ -1,18 +1,234 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap');
 
 @import "tailwindcss";
+
+/* Live teammate cursors stay visually clear while never intercepting clicks. */
+.live-presence-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.live-peer-cursor {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transition: left 45ms linear, top 45ms linear;
+}
+
+.live-peer-pointer {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  filter: drop-shadow(0 1px 2px rgb(15 23 42 / 30%));
+}
+
+.live-peer-label {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 230px;
+  padding: 5px 12px 5px 5px;
+  border: 1px solid rgb(255 255 255 / 90%);
+  border-radius: 999px;
+  background: white;
+  box-shadow: 0 5px 18px rgb(15 23 42 / 18%), 0 1px 3px rgb(15 23 42 / 12%);
+}
+
+.live-peer-label-left {
+  left: -12px;
+  transform: translateX(-100%);
+}
+
+.live-peer-avatar {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  overflow: hidden;
+  border: 2px solid var(--peer-color);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--peer-color) 12%, white);
+  color: var(--peer-color);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.live-peer-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.live-peer-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.live-peer-name,
+.live-peer-activity {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-peer-name {
+  color: #1f2937;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.live-peer-activity {
+  max-width: 175px;
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 10px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+   ═══════════════════════════════════════════════════════════════
+
+   Three problems this fixes:
+
+   1. `danger`, `sage` and `sage-dark` were used 33 times across the app
+      and never defined — so bg-sage, text-danger and friends rendered
+      as nothing at all.
+
+   2. --color-primary-dark (#D552A3) was LIGHTER than --color-primary
+      (#462C7D), so every `hover:bg-primary-dark` button got brighter on
+      hover instead of darker.
+
+   3. --color-teal was #FF70BF, which is pink. 140 usages named after a
+      colour they aren't.
+
+   Rule from here: purple is structure, pink is action, everything else
+   is neutral. Colour means something or it isn't used.
+   ═══════════════════════════════════════════════════════════════ */
 
 @theme {
   --font-sans: "Inter", system-ui, sans-serif;
   --font-display: "Playfair Display", serif;
-  
-  --color-primary: #462C7D;
-  --color-primary-light: #831C91;
-  --color-primary-dark: #D552A3;
-  --color-teal: #FF70BF;
-  --color-accent: #FF3483;
-  --color-cream: #FFDBFD;
-  --color-cream-dark: #C9BEFF;
+
+  /* ── Brand: purple. Structure, navigation, primary actions. ── */
+  --color-primary:        #462C7D;
+  --color-primary-light:  #6B4BA8;
+  --color-primary-dark:   #33205C;   /* now actually darker */
+  --color-primary-subtle: #F1EDFA;
+
+  /* ── Accent: pink. Reserved for the ONE main action per screen. ── */
+  --color-accent:         #C41E63;
+  --color-accent-light:   #FF70BF;
+  --color-accent-dark:    #9E1850;
+  --color-accent-subtle:  #FDEBF3;
+
+  /* Kept because 140 usages reference it. Now a coherent supporting
+     rose rather than a pink called teal. Migrate to accent over time. */
+  --color-teal:      #852d56;
+  --color-teal-dark: #a5406b;
+
+  /* ── Surfaces. Two levels, not four. ── */
+  --color-sage:       #F7F5FB;   /* page background */
+  --color-sage-dark:  #E8E3F2;
+  --color-cream:      #FBF9FE;   /* raised panel */
+  --color-cream-dark: #EFEAF8;
+
+  /* ── Semantic. These carry meaning; don't use them decoratively. ── */
+  --color-success:        #0B6E4C;
+  --color-success-subtle: #E6F6EF;
+  --color-warning:        #8A5300;
+  --color-warning-subtle: #FDF3E2;
+  --color-danger:         #C8323C;
+  --color-danger-subtle:  #FDECEE;
+  --color-danger-light:   #FDECEE;
+  --color-info:           #2563A8;
+  --color-info-subtle:    #EAF1FA;
+
+  /* ── MOTION DEFAULTS ──────────────────────────────────────────
+     Tailwind ships 150ms on cubic-bezier(0.4, 0, 0.2, 1) — Material's
+     curve. It's symmetric: the same acceleration in and out, which
+     reads as mechanical because nothing in the physical world moves
+     that way.
+
+     This curve is asymmetric — almost all the speed is spent
+     immediately, then it decelerates into place. That's what makes
+     Apple's interfaces feel like objects responding rather than
+     properties interpolating.
+
+     Setting it here rewrites all 247 existing transitions in the app
+     without touching a single call site. ── */
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Named curves for anything that needs a different character. */
+  --ease-out-soft:  cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out-quick: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring:    cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  /* Durations by scale. Bigger movement earns more time; a hover
+     colour change at 300ms feels laggy, a sheet at 100ms feels
+     snapped. */
+  --duration-micro: 120ms;   /* hover, focus, colour */
+  --duration-small: 200ms;   /* dropdowns, chips, rows */
+  --duration-large: 300ms;   /* sheets, drawers, page regions */
+
+  /* ── Radius. Varies with elevation: small controls, larger
+        containers, largest sheets. When everything is rounded-2xl the
+        roundness stops signalling anything. ── */
+  --radius-control: 0.5rem;    /* buttons, inputs, chips */
+  --radius-panel:   0.75rem;   /* cards, list containers */
+  --radius-sheet:   1rem;      /* modals, drawers */
+
+  /* ── Type scale. 12px floor — this is read at arm's length,
+        standing, sometimes in shop-window daylight. ── */
+  --text-2xs:   0.75rem;    /* 12px — smallest permitted */
+  --text-xs:    0.8125rem;  /* 13px */
+  --text-sm:    0.875rem;   /* 14px — body default */
+  --text-base:  1rem;       /* 16px */
+  --text-lg:    1.125rem;   /* 18px */
+  --text-xl:    1.375rem;   /* 22px */
+  --text-2xl:   1.75rem;    /* 28px */
+  --text-3xl:   2.25rem;    /* 36px — the one big number */
+}
+
+/* Semantic UI tokens are the stable contract for components. Brand
+   palette values above can evolve without changing surface, content,
+   border, and focus behavior across the application. Light is canonical. */
+:root {
+  color-scheme: light;
+  --ui-surface-canvas: #F7F5FB;
+  --ui-surface-panel: #FFFFFF;
+  --ui-surface-raised: #FBF9FE;
+  --ui-surface-inset: #F1EDF6;
+  --ui-content-primary: #1A1523;
+  --ui-content-secondary: #514A5C;
+  --ui-content-muted: #6E6779;
+  --ui-content-subtle: #766E80;
+  --ui-border-subtle: #E8E3F2;
+  --ui-border-strong: #D4CDDF;
+  --ui-focus-ring: #C41E63;
+  --ui-overlay: rgb(22 16 29 / 54%);
+  --ui-shadow: rgb(42 27 58 / 10%);
+
+  /* Shared POS shell rhythm: same gutters and vertical start on every
+     authenticated route; page sections use the 4px Tailwind scale. */
+  --layout-sidebar-width: 14.5rem;
+  --layout-topbar-height: 4rem;
+  --layout-content-top: 5rem;
+  --layout-content-bottom: 1.5rem;
+  --layout-gutter-mobile: 0.75rem;
+  --layout-gutter-tablet: 1.25rem;
+  --layout-gutter-desktop: 1.5rem;
 }
 
 @layer base {
@@ -20,9 +236,1103 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background-color: #f9fafb;
-    color: #111827;
+    background-color: var(--ui-surface-canvas);
+    color: var(--ui-content-primary);
+    font-size: 0.875rem;
   }
+
+  /* Digits align in columns. In a POS the numbers ARE the interface —
+     ragged figures make totals hard to scan and comparisons harder. */
+  table, .tabular, [class*="tabular"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.011em;
+  }
+
+  /* Visible focus everywhere. A till is used by keyboard more than
+     anyone admits. */
+  :focus-visible {
+    outline: 2px solid var(--ui-focus-ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Keep operational labels readable at a glance. Several legacy pages
+     use 10px/11px Tailwind literals; 12px is the minimum UI text size. */
+  :where([class~="text-[10px]"], [class~="text-[11px]"]) {
+    font-size: 0.75rem !important;
+  }
+
+  /* Consistent tactile feedback for controls that don't use a component
+     class. Keep the movement tiny and let explicit Tailwind transitions
+     take precedence where a component needs its own timing. */
+  button:not(:disabled):not(.press):not(.btn), [role="button"]:not([aria-disabled="true"]):not(.press):not(.btn) {
+    -webkit-tap-highlight-color: transparent;
+    transition-property: color, background-color, border-color, box-shadow, transform;
+    transition-duration: var(--duration-micro);
+    transition-timing-function: var(--ease-out-soft);
+  }
+  button:not(:disabled):not(.press):not(.btn):active, [role="button"]:not([aria-disabled="true"]):not(.press):not(.btn):active {
+    transform: scale(0.985);
+  }
+  button:disabled, [role="button"][aria-disabled="true"] { cursor: not-allowed; }
+  button[aria-busy="true"] { cursor: progress; }
+  :where(input, select, textarea)[aria-invalid="true"] {
+    border-color: var(--color-danger) !important;
+  }
+  :where(input, select, textarea)[aria-invalid="true"]:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 20%, transparent);
+  }
+  a[href] {
+    -webkit-tap-highlight-color: transparent;
+    transition-property: color, background-color, border-color, box-shadow;
+    transition-duration: var(--duration-micro);
+    transition-timing-function: var(--ease-out-soft);
+  }
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+    transition-property: border-color, box-shadow, background-color;
+    transition-duration: var(--duration-micro);
+    transition-timing-function: var(--ease-out-soft);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENT CLASSES
+   Defined once so the same button doesn't get reinvented per page.
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+  /* ── Buttons: three ranks. One primary per screen. ──
+     Cash Out, Quick Sale and Add Order were three filled buttons side
+     by side — three primaries means no primary. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    border-radius: var(--radius-control);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.2;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Press feedback. The single cheapest thing that makes an interface
+     feel physical: the control yields under the finger, then springs
+     back. Scale rather than colour, because colour already means
+     something in this app. */
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+    transition-duration: 80ms;
+  }
+
+  .btn-primary   { background: var(--color-accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--color-accent-dark); }
+
+  .btn-secondary {
+    background: var(--ui-surface-panel);
+    color: var(--color-primary);
+    border: 1px solid var(--ui-border-strong);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--color-sage); }
+
+  .btn-ghost { background: transparent; color: var(--ui-content-muted); }
+  .btn-ghost:hover:not(:disabled) { background: var(--color-sage-dark); color: var(--color-primary); }
+
+  .btn-danger { background: var(--color-danger); color: #fff; }
+  .btn-danger:hover:not(:disabled) { background: #A82A32; }
+
+  /* Anything tappable that isn't a .btn.
+     Transitions colour as well as transform — these classes replace
+     `transition-colors` at their call sites, and without it every
+     hover state would snap. */
+  .press {
+    transition:
+      transform var(--duration-micro) var(--ease-out-soft),
+      background-color var(--duration-micro) var(--ease-out-soft),
+      border-color var(--duration-micro) var(--ease-out-soft),
+      color var(--duration-micro) var(--ease-out-soft);
+  }
+  .press:active {
+    transform: scale(0.97);
+    transition-duration: 80ms;
+  }
+
+  /* Cards that lead somewhere lift slightly. Restrained — 1px and a
+     softer shadow, not a hover animation people notice. */
+  .lift {
+    transition:
+      transform var(--duration-small) var(--ease-out-soft),
+      box-shadow var(--duration-small) var(--ease-out-soft),
+      background-color var(--duration-small) var(--ease-out-soft),
+      border-color var(--duration-small) var(--ease-out-soft);
+  }
+  .lift:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.12);
+  }
+  .lift:active {
+    transform: translateY(0) scale(0.995);
+    transition-duration: 80ms;
+  }
+
+  /* ── Surfaces: TWO levels. Page → panel. That's the limit before
+        nothing reads as a container. ── */
+  .panel {
+    background: var(--ui-surface-panel);
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--ui-border-subtle);
+  }
+  .panel-flat {
+    background: var(--ui-surface-raised);
+    border-radius: var(--radius-panel);
+  }
+
+  /* Grouped list. The alternative to nesting cards inside cards: one
+     container, hairline dividers. Reads faster and feels calmer. */
+  .list-group {
+    background: var(--ui-surface-panel);
+    border: 1px solid var(--ui-border-subtle);
+    border-radius: var(--radius-panel);
+    overflow: hidden;
+  }
+  .list-group > * + * {
+    border-top: 1px solid var(--ui-border-subtle);
+  }
+
+  /* ── Numbers. The whole point of a POS. ── */
+  .figure {
+    font-variant-numeric: tabular-nums;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--ui-content-primary);
+  }
+  .figure-lg { font-size: 1.75rem; line-height: 1.1; }
+  .figure-xl { font-size: 2.25rem; line-height: 1; }
+
+  /* ── Section label. ONE approved micro-label style, so it stops
+        being reinvented at four sizes per screen. ── */
+  .label-section {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ui-content-muted);
+  }
+
+  /* ── Status pills ── */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .pill-success { background: var(--color-success-subtle); color: var(--color-success); }
+  .pill-warning { background: var(--color-warning-subtle); color: var(--color-warning); }
+  .pill-danger  { background: var(--color-danger-subtle);  color: var(--color-danger); }
+  .pill-info    { background: var(--color-info-subtle);    color: var(--color-info); }
+  .pill-neutral { background: var(--ui-surface-inset);      color: var(--ui-content-secondary); }
+}
+
+/* Shared spacing for the authenticated application frame. Feature pages
+   can arrange their own sections, but they start from the same usable
+   canvas and never need to repeat breakpoint-specific shell padding. */
+@layer components {
+  .dashboard-main {
+    min-height: 100vh;
+    margin-left: 0;
+    padding: var(--layout-content-top) var(--layout-gutter-mobile) var(--layout-content-bottom);
+  }
+
+  @media (min-width: 640px) {
+    .dashboard-main { padding-inline: var(--layout-gutter-tablet); }
+  }
+
+  @media (min-width: 1024px) {
+    .dashboard-main {
+      margin-left: var(--layout-sidebar-width);
+      padding-inline: var(--layout-gutter-desktop);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MOTION — brief, purposeful, and off when the OS asks
+
+   Things should come from somewhere. A modal that fades in centred has
+   no origin; a sheet that rises from the bottom is the continuation of
+   the action that opened it. The curve below is a soft spring — fast
+   out of the gate, gentle on arrival.
+   ═══════════════════════════════════════════════════════════════ */
+
+.sheet-enter   { animation: sheet-up 260ms cubic-bezier(0.32, 0.72, 0, 1); }
+.drawer-enter  { animation: drawer-in 280ms cubic-bezier(0.32, 0.72, 0, 1); }
+.popover-enter { animation: popover-in 160ms cubic-bezier(0.32, 0.72, 0, 1); transform-origin: top right; }
+.scrim-enter   { animation: fade-in 200ms ease-out; }
+
+@keyframes sheet-up {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+@keyframes popover-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes assistant-in { from { opacity: 0; transform: translateY(8px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes assistant-dot { 0%, 60%, 100% { opacity: .38; transform: translateY(0) scale(.82); } 30% { opacity: 1; transform: translateY(-2px) scale(1); } }
+@keyframes assistant-launcher-breathe { 0%, 100% { box-shadow: 0 5px 13px rgba(111,49,78,.16), inset 0 1px 0 rgba(255,255,255,.95); } 50% { box-shadow: 0 6px 15px rgba(111,49,78,.2), inset 0 1px 0 rgba(255,255,255,.95); } }
+@keyframes assistant-orb-spin { to { transform: rotate(360deg); } }
+@keyframes assistant-orb-breathe { 0%, 100% { transform: scale(.97); filter: saturate(1); } 50% { transform: scale(1.03); filter: saturate(1.18); } }
+@keyframes assistant-orb-idle-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+@keyframes assistant-orb-wave { 0%, 100% { opacity: .35; transform: scale(.88); } 50% { opacity: 1; transform: scale(1.04); } }
+@keyframes assistant-orb-success { 0% { transform: scale(.65); opacity: .4; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
+.assistant-dot { animation: assistant-dot 1s ease-in-out infinite; }
+.assistant-orb { position: relative; display: inline-grid; flex: 0 0 auto; place-items: center; overflow: visible; border-radius: 50%; vertical-align: middle; transition: transform 180ms ease, filter 180ms ease; }
+.assistant-orb:hover { transform: scale(1.06); filter: brightness(1.04); }
+.assistant-orb-ring { position: absolute; inset: 0; border-radius: inherit; background: conic-gradient(from 215deg, #168BEA, #25D6C7 19%, #B6F36B 34%, #FFE45D 48%, #FF705C 65%, #E94D8F 81%, #8F6AFF 92%, #168BEA); box-shadow: inset 0 1px 2px rgba(255,255,255,.8), 0 2px 7px rgba(27,84,133,.28); }
+.assistant-orb-core { position: absolute; inset: 11%; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(201,255,240,.65); border-radius: inherit; background: radial-gradient(circle at 34% 24%, #08766C 0, #07584F 35%, #063D45 72%, #092F43 100%); box-shadow: inset 0 2px 5px rgba(225,255,242,.32), inset 0 -4px 9px rgba(0,13,35,.38), 0 0 9px rgba(28,238,205,.23); color: white; }
+.assistant-orb-eyes, .assistant-orb-paused-eyes { display: flex; align-items: center; justify-content: center; gap: 22%; width: 60%; height: 48%; }
+.assistant-orb-eyes i, .assistant-orb-paused-eyes i { display: block; width: 20%; height: 72%; min-height: 4px; border-radius: 99px; background: #F3FFFE; box-shadow: 0 0 5px rgba(235,255,255,.85); }
+.assistant-orb-paused-eyes i { opacity: .38; }
+.assistant-orb-spinner { width: 48%; height: 48%; border: 2px dotted rgba(228,255,255,.88); border-radius: 50%; animation: assistant-orb-spin 1.2s linear infinite; }
+.assistant-orb-processing .assistant-orb-ring { animation: assistant-orb-spin 5s linear infinite; }
+.assistant-orb-idle .assistant-orb-ring { animation: assistant-orb-spin 14s linear infinite; }
+.assistant-orb-idle .assistant-orb-core { animation: assistant-orb-idle-float 3.4s ease-in-out infinite; }
+.assistant-orb-listening .assistant-orb-ring { animation: assistant-orb-breathe 1.3s ease-in-out infinite; }
+.assistant-orb-wave { position: absolute; z-index: 2; top: 30%; width: 24%; height: 40%; border: 1.5px solid transparent; border-radius: 50%; animation: assistant-orb-wave .9s ease-in-out infinite; }
+.assistant-orb-wave-left { left: -12%; border-left-color: #61D68A; }
+.assistant-orb-wave-right { right: -12%; border-right-color: #61D68A; animation-delay: 140ms; }
+.assistant-orb-error .assistant-orb-ring { background: conic-gradient(#8B8490,#D7A1A3,#755E6B,#A58B91,#8B8490); }
+.assistant-orb-error .assistant-orb-core { background: radial-gradient(circle at 35% 25%, #713F50,#3E303D 78%); }
+.assistant-orb-success .assistant-orb-success-mark { animation: assistant-orb-success 420ms ease-out both; }
+.assistant-orb-disabled .assistant-orb-ring, .assistant-orb-offline .assistant-orb-ring, .assistant-orb-busy .assistant-orb-ring { background: conic-gradient(#777681,#B8B7BA,#686875,#AAA9AE,#777681); filter: grayscale(.8); }
+.assistant-orb-disabled .assistant-orb-core, .assistant-orb-offline .assistant-orb-core, .assistant-orb-busy .assistant-orb-core, .assistant-orb-connection .assistant-orb-core { background: radial-gradient(circle at 35% 25%, #77767B,#48474F 78%); color: #D5D3D7; }
+.assistant-orb-muted-symbol { opacity: .7; }
+.assistant-orb-disabled-slash { position: absolute; z-index: 3; left: 9%; top: 48%; width: 84%; height: 2px; border-radius: 4px; background: #E6E1E4; box-shadow: 0 1px 2px #413A43; transform: rotate(-47deg); }
+.assistant-orb-connection .assistant-orb-ring { background: conic-gradient(#F64B55,#FFC449,#47D78A,#258CF0,#905BFA,#F64B55); animation: assistant-orb-spin 1.7s linear infinite; }
+.assistant-orb-connection .assistant-orb-core { background: #132A35; }
+.assistant-orb-badge { position: absolute; z-index: 4; top: -10%; right: -10%; display: grid; width: 42%; height: 42%; place-items: center; border: 1px solid rgba(255,255,255,.9); border-radius: 50%; background: #FFF; color: #4B4550; box-shadow: 0 1px 4px rgba(35,24,34,.24); }
+.assistant-orb-status-dot { position: absolute; z-index: 4; top: -4%; right: -4%; width: 23%; height: 23%; border: 2px solid #FFF; border-radius: 50%; background: #C36B83; box-shadow: 0 1px 4px rgba(35,24,34,.2); }
+.assistant-orb-badge-error, .assistant-orb-badge-warning { background: #FF6B64; color: #38202A; }
+.assistant-orb-badge-success { background: #27D795; color: #073E37; }
+.assistant-orb-badge-proactive { right: -5%; top: -12%; border: 0; background: #FFE477; color: #70511B; }
+.assistant-orb-badge-insight { background: #7EE3F1; color: #16485A; }
+.assistant-orb-badge-paused { right: -8%; top: -5%; border: 0; background: transparent; color: #D6E1FF; box-shadow: none; }
+.assistant-orb-badge-update { background: #40E58B; color: #07542D; }
+.assistant-orb-badge-settings { background: #D7D8DE; color: #46505A; }
+.assistant-orb-badge-busy { background: #D9C9FF; color: #45337D; }
+.assistant-message-enter { animation: assistant-in 260ms cubic-bezier(.2,.8,.2,1) both; }
+.assistant-panel-motion { visibility: hidden; opacity: 0; transform: translateY(12px) scale(.975); transform-origin: bottom right; pointer-events: none; transition: opacity 220ms ease, transform 300ms cubic-bezier(.2,.8,.2,1), visibility 0s linear 300ms; }
+.assistant-panel-open { visibility: visible; opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; transition: opacity 220ms ease, transform 300ms cubic-bezier(.2,.8,.2,1), visibility 0s linear; }
+.assistant-launcher-idle { animation: assistant-launcher-breathe 3.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .assistant-dot { animation: none; opacity: .8; }
+  .assistant-launcher-idle { animation: none; }
+  .assistant-orb, .assistant-orb-ring, .assistant-orb-core, .assistant-orb-spinner, .assistant-orb-wave, .assistant-orb-success-mark { animation: none; transition: none; transform: none; }
+  .assistant-message-enter, .assistant-panel-motion, .assistant-panel-open { animation: none; transition: none; transform: none; }
+}
+
+/* Skeletons instead of spinners. A spinner says "wait"; a skeleton says
+   "here is the shape of what's coming", and reads as roughly twice as
+   fast for the same delay. */
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--color-sage-dark) 25%,
+    color-mix(in srgb, var(--color-sage-dark) 55%, white) 50%,
+    var(--color-sage-dark) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 0.5rem;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.logo-reveal { position: relative; display: flex; align-items: center; justify-content: center; isolation: isolate; }
+.logo-mark { z-index: 2; opacity: 0; animation: logo-emerge 900ms cubic-bezier(0.22,1,0.36,1) 120ms forwards; }
+.logo-bloom {
+  position: absolute; inset: -40%; z-index: 1; border-radius: 9999px; opacity: 0; transform: scale(0.4);
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--color-accent) 22%, transparent) 0%,
+    color-mix(in srgb, var(--color-primary) 12%, transparent) 45%,
+    transparent 70%);
+  animation: logo-bloom 1400ms cubic-bezier(0.16,1,0.3,1) 60ms forwards;
+}
+.logo-rule {
+  position: absolute; bottom: -14px; left: 50%; z-index: 2; height: 1px; width: 0; transform: translateX(-50%);
+  background: linear-gradient(to right, transparent, var(--color-primary), transparent);
+  animation: logo-rule 700ms cubic-bezier(0.22,1,0.36,1) 620ms forwards;
+}
+.logo-caption { opacity: 0; animation: logo-caption 600ms ease-out 780ms forwards; }
+
+@keyframes logo-emerge {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.94); filter: blur(8px); clip-path: inset(100% 0 0 0); }
+  60%  { opacity: 1; filter: blur(0); clip-path: inset(0 0 0 0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); clip-path: inset(0 0 0 0); }
+}
+@keyframes logo-bloom  { 0% { opacity: 0; transform: scale(0.4); } 45% { opacity: 1; } 100% { opacity: 0.55; transform: scale(1); } }
+@keyframes logo-rule   { from { width: 0; } to { width: 72px; } }
+@keyframes logo-caption{ from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Auth + startup: a calm glass surface with a flower mark that opens in
+   layers. The orbit gives the brand a little theatre without slowing the
+   form down or competing with the sign-in action. */
+.auth-shell {
+  background:
+    radial-gradient(ellipse at 10% 10%, rgb(242 218 234 / 72%), transparent 34%),
+    radial-gradient(ellipse at 84% 88%, rgb(224 218 244 / 72%), transparent 38%),
+    #f7f5fb;
+}
+.auth-backdrop { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.auth-light { position: absolute; display: block; width: 32rem; aspect-ratio: 1; border-radius: 50%; filter: blur(80px); opacity: .45; animation: auth-light-drift 18s ease-in-out infinite alternate; }
+.auth-light-one { left: 21%; top: 17%; background: #F5C6DC; }
+.auth-light-two { right: -9rem; bottom: -12rem; background: #D8C9F0; animation-delay: -9s; }
+.auth-grain { position: absolute; inset: 0; opacity: .12; background-image: radial-gradient(#6b4ba8 0.45px, transparent 0.45px); background-size: 7px 7px; mask-image: linear-gradient(120deg, #000, transparent 72%); }
+.auth-layout { animation: auth-layout-in 650ms cubic-bezier(.2,.8,.2,1) both; }
+.auth-brand-lockup { display: flex; align-items: center; gap: 13px; }
+.blossom-glyph { position: relative; display: inline-block; flex: 0 0 auto; overflow: hidden; }
+.blossom-glyph img { position: absolute; left: 0; top: 0; display: block; width: 100%; height: auto; max-width: none; user-select: none; }
+.auth-brand-glyph { width: 42px; height: 26px; }
+.auth-brand-glyph-small { width: 36px; height: 22px; }
+.auth-brand-icon { display: grid; width: 58px; height: 58px; place-items: center; border: 1px solid rgb(255 255 255 / 86%); border-radius: 19px; background: rgb(255 255 255 / 70%); box-shadow: 0 10px 28px rgb(70 44 125 / 10%), inset 0 1px 0 white; }
+.auth-brand-icon-small { width: 48px; height: 48px; border-radius: 16px; }
+.auth-eyebrow { color: #B2497B; font-size: 11px; font-weight: 700; letter-spacing: .17em; text-transform: uppercase; }
+.auth-headline-accent { color: #9D5DA4; background: linear-gradient(100deg, #C24980 0%, #8E6BB3 85%); background-clip: text; -webkit-text-fill-color: transparent; }
+.auth-art-stage { position: relative; display: grid; width: min(100%, 510px); height: 280px; place-items: center; overflow: hidden; border: 1px solid rgb(255 255 255 / 72%); border-radius: 30px; background: linear-gradient(145deg, rgb(255 255 255 / 48%), rgb(255 255 255 / 18%)); box-shadow: inset 0 1px 0 rgb(255 255 255 / 80%), 0 24px 60px rgb(70 44 125 / 7%); }
+.auth-orbit { position: absolute; left: 50%; top: 45%; border: 1px solid rgb(151 103 172 / 22%); border-radius: 50%; transform: translate(-50%, -50%); }
+.auth-orbit-outer { width: 240px; height: 240px; border-style: dashed; animation: auth-orbit-turn 44s linear infinite; }
+.auth-orbit-inner { width: 188px; height: 188px; border-color: rgb(201 103 157 / 20%); animation: auth-orbit-turn 30s linear infinite reverse; }
+.auth-logo-aura { position: absolute; left: 50%; top: 45%; width: 170px; height: 170px; border-radius: 50%; background: radial-gradient(circle, rgb(245 180 211 / 72%), rgb(205 184 231 / 30%) 48%, transparent 73%); filter: blur(12px); transform: translate(-50%, -50%); animation: auth-aura-breathe 5.5s ease-in-out infinite; }
+.auth-logo-stage { position: absolute; left: 50%; top: 45%; width: 180px; height: 112px; transform: translate(-50%, -50%); }
+.auth-hero-glyph { width: 180px; height: 112px; overflow: hidden; filter: drop-shadow(0 15px 22px rgb(86 47 115 / 22%)); animation: auth-mark-arrive 1.3s cubic-bezier(.16,1,.3,1) both; }
+.auth-spark { position: absolute; color: #B55C93; animation: auth-sparkle 2.7s ease-in-out infinite; }
+.auth-spark-one { top: 3px; right: 10px; font-size: 19px; }
+.auth-spark-two { left: 1px; bottom: 29px; font-size: 23px; animation-delay: 800ms; }
+.auth-spark-three { right: -14px; bottom: 23px; font-size: 28px; animation-delay: 1.4s; }
+.auth-art-caption { position: absolute; bottom: 20px; left: 50%; display: flex; align-items: center; gap: 9px; max-width: calc(100% - 32px); padding: 9px 14px; border: 1px solid rgb(255 255 255 / 84%); border-radius: 999px; background: rgb(255 255 255 / 70%); color: #625970; font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 6px 20px rgb(70 44 125 / 7%); transform: translateX(-50%); backdrop-filter: blur(12px); }
+.auth-caption-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #C65391; box-shadow: 0 0 0 4px rgb(198 83 145 / 12%); }
+.auth-caption-divider { width: 1px; height: 14px; background: #DED6E6; }
+.auth-feature-row { display: flex; align-items: center; gap: 12px; color: #8B8295; font-size: 11px; font-weight: 600; }
+.auth-feature-row i { width: 3px; height: 3px; border-radius: 50%; background: #C26B9A; }
+.auth-card-wrap { animation: auth-card-in 680ms cubic-bezier(.2,.8,.2,1) 80ms both; }
+.auth-card { padding: 38px 40px 32px; border: 1px solid rgb(255 255 255 / 92%); border-radius: 28px; background: rgb(255 255 255 / 88%); box-shadow: 0 30px 90px rgb(49 35 75 / 12%), 0 3px 12px rgb(49 35 75 / 5%), inset 0 1px 0 #fff; backdrop-filter: blur(24px); }
+.auth-card-topline { display: flex; align-items: center; gap: 8px; margin: 0 0 28px; color: #9A91A2; font-size: 9px; font-weight: 700; letter-spacing: .16em; }
+.auth-secure-dot { width: 7px; height: 7px; border-radius: 50%; background: #58A88B; box-shadow: 0 0 0 4px rgb(88 168 139 / 12%); }
+.auth-form-enter { animation: auth-form-in 420ms cubic-bezier(.2,.8,.2,1) 180ms both; }
+.auth-error { animation: auth-error-in 220ms cubic-bezier(.2,.8,.2,1) both; }
+.auth-submit { background: linear-gradient(105deg, #462C7D 0%, #62418E 56%, #A14D83 100%); box-shadow: 0 8px 18px rgb(70 44 125 / 18%), inset 0 1px 0 rgb(255 255 255 / 18%); transition: transform 180ms cubic-bezier(.32,.72,0,1), box-shadow 180ms ease, filter 180ms ease; }
+.auth-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 24px rgb(70 44 125 / 23%), inset 0 1px 0 rgb(255 255 255 / 18%); filter: saturate(1.08); }
+.auth-submit:active:not(:disabled) { transform: translateY(0) scale(.985); }
+.auth-loading-glyph { width: 28px; height: 17px; animation: auth-loading-pulse 900ms ease-in-out infinite alternate; }
+
+.splash-screen { position: relative; display: grid; min-height: 100svh; place-items: center; overflow: hidden; isolation: isolate; background: radial-gradient(ellipse at 50% 48%, #fff 0%, #FBF8FC 34%, #F2EDF8 100%); opacity: 1; transition: opacity 300ms cubic-bezier(.2,.8,.2,1); }
+.splash-screen.splash-exiting { opacity: 0; }
+.splash-light { position: absolute; width: min(60vw, 620px); aspect-ratio: 1; border-radius: 50%; filter: blur(90px); opacity: .34; animation: auth-light-drift 2s ease-in-out both; }
+.splash-light-a { top: -28%; left: -13%; background: #E9B5D0; }
+.splash-light-b { right: -16%; bottom: -35%; background: #CFC2E7; animation-direction: reverse; }
+.splash-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; animation: splash-content-in 900ms cubic-bezier(.2,.8,.2,1) both; }
+.splash-emblem-wrap { position: relative; display: grid; width: 172px; height: 172px; place-items: center; }
+.splash-glyph { position: relative; z-index: 2; width: 148px; height: 92px; filter: drop-shadow(0 15px 22px rgb(86 47 115 / 22%)); animation: auth-mark-arrive 1.25s cubic-bezier(.16,1,.3,1) both; }
+.splash-trail { position: absolute; z-index: 1; width: 154px; height: 154px; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0deg 250deg, rgb(194 76 137 / 8%) 274deg, rgb(194 76 137 / 72%) 323deg, rgb(126 81 163 / 88%) 343deg, transparent 360deg); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); filter: drop-shadow(0 0 7px rgb(192 93 151 / 38%)); animation: splash-trail-run 5s linear both; }
+.splash-halo { position: absolute; inset: 18px; border: 1px solid rgb(143 101 174 / 24%); border-radius: 50%; }
+.splash-halo-one { animation: splash-halo 5s cubic-bezier(.16,1,.3,1) both; }
+.splash-halo-two { animation: splash-halo 2.5s cubic-bezier(.16,1,.3,1) 2.5s both; }
+.splash-wordmark { margin-top: 13px; color: #462C7D; font-family: var(--font-display); font-size: 32px; letter-spacing: -.025em; animation: auth-form-in 700ms ease 180ms both; }
+.splash-caption { margin-top: 5px; color: #82798B; font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; animation: auth-form-in 700ms ease 280ms both; }
+.splash-caption span { padding: 0 5px; color: #C65391; }
+.splash-progress { width: 128px; height: 2px; margin-top: 34px; overflow: hidden; border-radius: 99px; background: #E8E1EE; }
+.splash-progress span { display: block; width: 100%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #C65391, #7654A6); transform: scaleX(0); transform-origin: left center; animation: splash-progress-fill 2s linear both; }
+.splash-loading-label { margin-top: 12px; color: #9B92A4; font-size: 11px; letter-spacing: .02em; animation: auth-form-in 600ms ease 380ms both; }
+.splash-version { position: absolute; bottom: max(24px, env(safe-area-inset-bottom)); left: 50%; color: #A69EAE; font-size: 10px; letter-spacing: .06em; transform: translateX(-50%); white-space: nowrap; }
+
+@keyframes auth-layout-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes auth-card-in { from { opacity: 0; transform: translateY(12px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes auth-form-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes auth-error-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes auth-mark-arrive { from { opacity: 0; transform: translateY(8px) scale(.78); filter: blur(5px) drop-shadow(0 15px 22px rgb(86 47 115 / 22%)); } to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0) drop-shadow(0 15px 22px rgb(86 47 115 / 22%)); } }
+@keyframes auth-orbit-turn { to { transform: translate(-50%,-50%) rotate(360deg); } }
+@keyframes auth-aura-breathe { 0%,100% { opacity: .62; transform: translate(-50%,-50%) scale(.93); } 50% { opacity: .95; transform: translate(-50%,-50%) scale(1.08); } }
+@keyframes auth-sparkle { 0%,100% { opacity: .35; transform: scale(.8) rotate(-10deg); } 50% { opacity: 1; transform: scale(1.12) rotate(12deg); } }
+@keyframes auth-light-drift { from { transform: translate3d(-2%, 0, 0) scale(.92); } to { transform: translate3d(5%, 4%, 0) scale(1.08); } }
+@keyframes splash-content-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes splash-halo { 0% { opacity: .65; transform: scale(.72); } 100% { opacity: 0; transform: scale(1.45); } }
+@keyframes splash-trail-run { from { transform: rotate(-30deg) scale(.88); opacity: 0; } 12% { opacity: 1; } to { transform: rotate(330deg) scale(1); opacity: .9; } }
+@keyframes splash-progress-fill { to { transform: scaleX(1); } }
+@keyframes auth-loading-pulse { from { opacity: .58; filter: drop-shadow(0 0 0 rgb(255 255 255 / 0)); } to { opacity: 1; filter: drop-shadow(0 0 5px rgb(255 255 255 / 65%)); } }
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK THEME
+   The same Blossom palette, with deep plum surfaces and softened
+   neutral text. Theme is applied to <html> so dialogs, the assistant,
+   and auth screens follow it as well as the page currently open.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --report-grid-strong: #d1d5db;
+  --report-grid: #f1f2f4;
+  --report-grid-minor: #f7f8f9;
+  --report-axis: #9ca3af;
+  --report-empty-bar: #e5e7eb;
+  --report-series-1: #5b3a8a;
+  --report-series-2: #c2185b;
+  --report-series-3: #8b5cf6;
+  --report-series-4: #e879a8;
+  --report-series-5: #a78bfa;
+  --report-series-6: #f3b4ce;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Dark mode is the inverse semantic surface map. Foregrounds remain
+     bright enough for POS use; muted text stays above 4.5:1 on panels. */
+  --ui-surface-canvas: #131118;
+  --ui-surface-panel: #1D1A23;
+  --ui-surface-raised: #25212C;
+  --ui-surface-inset: #17141B;
+  --ui-content-primary: #F4F0F7;
+  --ui-content-secondary: #D5D0DC;
+  --ui-content-muted: #AAA2B1;
+  --ui-content-subtle: #96909F;
+  --ui-border-subtle: #34303B;
+  --ui-border-strong: #494450;
+  --ui-focus-ring: #FF85B6;
+  --ui-overlay: rgb(0 0 0 / 68%);
+  --ui-shadow: rgb(0 0 0 / 34%);
+
+  --color-sage: #131118;
+  --color-sage-dark: #302b37;
+  --color-cream: #1d1a23;
+  --color-cream-dark: #292530;
+  --color-primary-subtle: #302544;
+  --color-accent-subtle: #3e2432;
+  --color-success: #62d4a4;
+  --color-success-subtle: #19362b;
+  --color-warning: #e9bd6b;
+  --color-warning-subtle: #392d1b;
+  --color-danger: #ff858b;
+  --color-danger-subtle: #3d2026;
+  --color-danger-light: #3d2026;
+  --color-info: #8ebcff;
+  --color-info-subtle: #1e2d42;
+
+  /* Tailwind neutral shades also drive existing text, borders, and
+     low-emphasis backgrounds throughout the screens. */
+  --color-gray-50: #131118;
+  --color-gray-100: #1a1720;
+  --color-gray-200: #24202a;
+  --color-gray-300: #342f3b;
+  --color-gray-400: #4b4552;
+  --color-gray-500: #5b5562;
+  --color-gray-600: #514b59;
+  --color-gray-700: #403a47;
+  --color-gray-800: #2c2732;
+  --color-gray-900: #211d27;
+  --color-gray-950: #17141b;
+
+  --color-slate-50: #131820;
+  --color-slate-100: #1a202a;
+  --color-slate-200: #252c38;
+  --color-slate-300: #343d4c;
+  --color-slate-400: #3c4655;
+  --color-slate-500: #465162;
+  --color-slate-600: #404b5b;
+  --color-slate-700: #343d4c;
+  --color-slate-800: #28313c;
+  --color-slate-900: #1d252e;
+  --color-slate-950: #14191f;
+
+  --color-rose-50: #351c27;
+  --color-rose-100: #452331;
+  --color-rose-200: #633246;
+  --color-rose-400: #873449;
+  --color-rose-500: #762640;
+  --color-rose-600: #6a223b;
+  --color-rose-700: #592037;
+  --color-rose-800: #45202e;
+  --color-red-50: #371d23;
+  --color-red-100: #48232b;
+  --color-red-200: #66313b;
+  --color-red-400: #9f3640;
+  --color-red-500: #8e2933;
+  --color-red-600: #79242d;
+  --color-red-700: #641f27;
+  --color-red-800: #4b1d23;
+  --color-amber-50: #382b18;
+  --color-amber-100: #49371e;
+  --color-amber-200: #66502a;
+  --color-amber-400: #79531e;
+  --color-amber-500: #704917;
+  --color-amber-600: #654114;
+  --color-amber-700: #563910;
+  --color-amber-800: #45300f;
+  --color-amber-900: #39270f;
+  --color-amber-950: #30220f;
+  --color-emerald-50: #19352b;
+  --color-emerald-100: #204334;
+  --color-emerald-400: #18734d;
+  --color-emerald-500: #136742;
+  --color-emerald-600: #115a3c;
+  --color-emerald-700: #0f4f36;
+  --color-emerald-800: #103f30;
+  --color-emerald-950: #19352b;
+  --color-green-50: #19352b;
+  --color-green-100: #204334;
+  --color-green-700: #8be4a5;
+  --color-green-800: #b8f0c7;
+  --color-green-950: #eaffef;
+  --color-blue-50: #1d2c40;
+  --color-blue-100: #23364e;
+  --color-blue-400: #1d5a9d;
+  --color-blue-500: #1d4f91;
+  --color-blue-600: #1a427c;
+  --color-blue-700: #163867;
+  --color-blue-800: #122d52;
+  --color-blue-950: #1d2c40;
+  --color-purple-50: #2a1f38;
+  --color-purple-100: #362647;
+  --color-purple-200: #4c365f;
+  --color-purple-400: #5a3b80;
+  --color-purple-500: #50346f;
+  --color-purple-600: #462d63;
+  --color-purple-700: #3e2959;
+  --color-violet-50: #2c2140;
+  --color-violet-100: #3a2b55;
+  --color-violet-200: #50406b;
+  --color-violet-400: #5d428a;
+  --color-violet-500: #533b7a;
+  --color-violet-600: #49336b;
+  --color-violet-700: #402c5d;
+  --color-violet-800: #36264f;
+  --color-teal-50: #17302f;
+  --color-teal-100: #1d3e3d;
+  --color-teal-200: #285351;
+  --color-teal-400: #1d7169;
+  --color-teal-500: #185e58;
+  --color-teal-600: #13514d;
+  --color-teal-700: #104541;
+  --color-teal-800: #0d3735;
+  --color-pink-50: #351e2c;
+  --color-pink-100: #472638;
+  --color-pink-200: #64364e;
+  --color-pink-400: #852c53;
+  --color-pink-500: #782449;
+  --color-pink-600: #69213f;
+  --color-orange-50: #38251b;
+  --color-orange-100: #492f20;
+  --color-orange-200: #64412b;
+  --color-orange-400: #82431a;
+  --color-orange-500: #753b14;
+  --color-orange-600: #66320f;
+  --color-orange-700: #552b10;
+  --color-fuchsia-50: #301d38;
+  --color-fuchsia-100: #40264d;
+  --color-fuchsia-200: #573665;
+  --color-fuchsia-400: #80539a;
+  --color-fuchsia-500: #704488;
+  --color-fuchsia-600: #613975;
+  --color-fuchsia-700: #543263;
+  --color-fuchsia-800: #462a53;
+  --color-fuchsia-900: #392243;
+  --color-fuchsia-950: #2f1b38;
+  --color-yellow-200: #5b451a;
+
+  --report-grid-strong: #514958;
+  --report-grid: #39333f;
+  --report-grid-minor: #302a35;
+  --report-axis: #a39bab;
+  --report-empty-bar: #38313e;
+  --report-series-1: #c0a1f4;
+  --report-series-2: #f27cab;
+  --report-series-3: #a78bfa;
+  --report-series-4: #f39dc1;
+  --report-series-5: #cdb5ff;
+  --report-series-6: #ffd0e1;
+}
+
+html[data-theme="dark"] body {
+  background-color: var(--ui-surface-canvas);
+  color: var(--ui-content-primary);
+}
+
+/* Neutral and status text needs its own foreground ramp. The matching
+   background utilities stay dark so dark cards and buttons don't turn
+   pale when the same Tailwind shade is used for text and surfaces. */
+html[data-theme="dark"] [class~="text-gray-50"],
+html[data-theme="dark"] [class~="text-gray-100"] { color: #f4f0f7 !important; }
+html[data-theme="dark"] [class~="text-gray-200"],
+html[data-theme="dark"] [class~="text-gray-300"],
+html[data-theme="dark"] [class~="text-gray-700"] { color: #d5d0dc !important; }
+html[data-theme="dark"] [class~="text-gray-400"],
+html[data-theme="dark"] [class~="text-gray-500"] { color: #aaa2b1 !important; }
+html[data-theme="dark"] [class~="text-gray-600"] { color: #c3bdca !important; }
+html[data-theme="dark"] [class~="text-gray-800"] { color: #e7e2ed !important; }
+html[data-theme="dark"] [class~="text-gray-900"],
+html[data-theme="dark"] [class~="text-gray-950"] { color: #f4f0f7 !important; }
+
+html[data-theme="dark"] [class~="text-slate-50"],
+html[data-theme="dark"] [class~="text-slate-100"] { color: #f1f4f8 !important; }
+html[data-theme="dark"] [class~="text-slate-200"],
+html[data-theme="dark"] [class~="text-slate-300"],
+html[data-theme="dark"] [class~="text-slate-700"] { color: #d1d8e1 !important; }
+html[data-theme="dark"] [class~="text-slate-400"],
+html[data-theme="dark"] [class~="text-slate-500"] { color: #a5afbd !important; }
+html[data-theme="dark"] [class~="text-slate-600"] { color: #c1c9d4 !important; }
+html[data-theme="dark"] [class~="text-slate-800"] { color: #e3e8ee !important; }
+html[data-theme="dark"] [class~="text-slate-900"],
+html[data-theme="dark"] [class~="text-slate-950"] { color: #f1f4f8 !important; }
+
+html[data-theme="dark"] [class~="text-rose-500"] { color: #fa6f91 !important; }
+html[data-theme="dark"] [class~="text-rose-600"] { color: #fa829d !important; }
+html[data-theme="dark"] [class~="text-rose-700"] { color: #ffa5b8 !important; }
+html[data-theme="dark"] [class~="text-rose-800"] { color: #ffc1cf !important; }
+html[data-theme="dark"] [class~="text-red-300"] { color: #ffb9bc !important; }
+html[data-theme="dark"] [class~="text-red-400"] { color: #ffa5a9 !important; }
+html[data-theme="dark"] [class~="text-red-500"] { color: #ff9398 !important; }
+html[data-theme="dark"] [class~="text-red-600"] { color: #ff858b !important; }
+html[data-theme="dark"] [class~="text-red-700"] { color: #ffa5a9 !important; }
+html[data-theme="dark"] [class~="text-red-800"] { color: #ffc0c2 !important; }
+html[data-theme="dark"] [class~="text-amber-500"] { color: #f4c66d !important; }
+html[data-theme="dark"] [class~="text-amber-600"] { color: #efbd68 !important; }
+html[data-theme="dark"] [class~="text-amber-700"] { color: #efc373 !important; }
+html[data-theme="dark"] [class~="text-amber-100"] { color: #f4d18f !important; }
+html[data-theme="dark"] [class~="text-amber-800"] { color: #f4d18f !important; }
+html[data-theme="dark"] [class~="text-amber-900"] { color: #f8dfa9 !important; }
+html[data-theme="dark"] [class~="text-amber-950"] { color: #fff0cf !important; }
+html[data-theme="dark"] [class~="text-emerald-100"] { color: #d0f4e0 !important; }
+html[data-theme="dark"] [class~="text-emerald-300"] { color: #a7ebc8 !important; }
+html[data-theme="dark"] [class~="text-emerald-400"] { color: #82ddb2 !important; }
+html[data-theme="dark"] [class~="text-emerald-500"],
+html[data-theme="dark"] [class~="text-emerald-600"] { color: #67d8a8 !important; }
+html[data-theme="dark"] [class~="text-emerald-700"] { color: #8be4bd !important; }
+html[data-theme="dark"] [class~="text-emerald-800"] { color: #b8f0d5 !important; }
+html[data-theme="dark"] [class~="text-emerald-950"] { color: #eafff3 !important; }
+html[data-theme="dark"] [class~="text-green-500"] { color: #8be4a5 !important; }
+html[data-theme="dark"] [class~="text-blue-500"] { color: #8ebcff !important; }
+html[data-theme="dark"] [class~="text-blue-600"] { color: #a9ccff !important; }
+html[data-theme="dark"] [class~="text-blue-700"] { color: #c9ddff !important; }
+html[data-theme="dark"] [class~="text-purple-500"] { color: #bd9bed !important; }
+html[data-theme="dark"] [class~="text-purple-600"] { color: #cbaeff !important; }
+html[data-theme="dark"] [class~="text-purple-700"] { color: #dcc7ff !important; }
+html[data-theme="dark"] [class~="text-violet-600"] { color: #c4a7ff !important; }
+html[data-theme="dark"] [class~="text-violet-700"] { color: #d8c3ff !important; }
+html[data-theme="dark"] [class~="text-teal-500"] { color: #63d2c5 !important; }
+html[data-theme="dark"] [class~="text-teal-600"] { color: #75dfd2 !important; }
+html[data-theme="dark"] [class~="text-teal-700"] { color: #83e2d4 !important; }
+html[data-theme="dark"] [class~="text-teal-800"] { color: #a3ede0 !important; }
+html[data-theme="dark"] [class~="text-pink-500"] { color: #ff82b6 !important; }
+html[data-theme="dark"] [class~="text-pink-600"] { color: #ff9bc4 !important; }
+html[data-theme="dark"] [class~="text-orange-600"] { color: #ffab73 !important; }
+html[data-theme="dark"] [class~="text-fuchsia-600"] { color: #d5a9ef !important; }
+html[data-theme="dark"] [class~="text-fuchsia-700"] { color: #e0bdf4 !important; }
+html[data-theme="dark"] [class~="text-fuchsia-800"] { color: #ebd2fa !important; }
+html[data-theme="dark"] [class~="text-fuchsia-900"] { color: #f0e0fa !important; }
+html[data-theme="dark"] [class~="text-fuchsia-950"] { color: #f8efff !important; }
+html[data-theme="dark"] [class~="text-teal"] { color: #f2a0c1 !important; }
+html[data-theme="dark"] [class~="text-teal-dark"] { color: #f5b4cd !important; }
+html[data-theme="dark"] [class~="text-accent"] { color: #ff85b6 !important; }
+html[data-theme="dark"] [class~="text-accent-dark"] { color: #f0a0c2 !important; }
+html[data-theme="dark"] [class~="text-primary-dark"] { color: #c4b1f4 !important; }
+html[data-theme="dark"] [class~="text-primary/50"],
+html[data-theme="dark"] [class~="text-primary/70"] { color: #c4b1f4 !important; }
+html[data-theme="dark"] [class~="hover:text-gray-600"]:hover { color: #c3bdca !important; }
+html[data-theme="dark"] [class~="hover:text-gray-700"]:hover { color: #d5d0dc !important; }
+html[data-theme="dark"] [class~="hover:text-gray-800"]:hover { color: #e7e2ed !important; }
+html[data-theme="dark"] [class~="hover:text-gray-900"]:hover { color: #f4f0f7 !important; }
+html[data-theme="dark"] [class~="hover:text-slate-700"]:hover { color: #d1d8e1 !important; }
+html[data-theme="dark"] [class~="hover:text-slate-900"]:hover { color: #f1f4f8 !important; }
+html[data-theme="dark"] [class~="hover:text-red-500"]:hover { color: #ff9398 !important; }
+html[data-theme="dark"] [class~="hover:text-red-600"]:hover { color: #ff858b !important; }
+html[data-theme="dark"] [class~="hover:text-red-700"]:hover { color: #ffa5a9 !important; }
+html[data-theme="dark"] [class~="hover:text-rose-600"]:hover { color: #fa829d !important; }
+html[data-theme="dark"] [class~="hover:text-amber-500"]:hover { color: #f4c66d !important; }
+html[data-theme="dark"] [class~="hover:text-amber-600"]:hover { color: #efbd68 !important; }
+html[data-theme="dark"] [class~="hover:text-amber-700"]:hover { color: #efc373 !important; }
+html[data-theme="dark"] [class~="hover:text-blue-600"]:hover { color: #a9ccff !important; }
+html[data-theme="dark"] [class~="hover:text-primary"]:hover { color: #c4b1f4 !important; }
+html[data-theme="dark"] [class~="hover:text-primary-dark"]:hover { color: #c4b1f4 !important; }
+html[data-theme="dark"] [class~="placeholder:text-gray-400"]::placeholder { color: #aaa2b1 !important; }
+html[data-theme="dark"] [class~="placeholder:text-gray-500"]::placeholder { color: #aaa2b1 !important; }
+
+html[data-theme="dark"] .bg-white {
+  background-color: var(--ui-surface-panel) !important;
+}
+
+/* Preserve each utility's opacity while swapping its white tint for the
+   dark panel color. Product overlays remain translucent over category art. */
+html[data-theme="dark"] [class~="bg-white/50"] { background-color: color-mix(in srgb, var(--ui-surface-panel) 50%, transparent) !important; }
+html[data-theme="dark"] [class~="bg-white/60"] { background-color: color-mix(in srgb, var(--ui-surface-panel) 60%, transparent) !important; }
+html[data-theme="dark"] [class~="bg-white/70"] { background-color: color-mix(in srgb, var(--ui-surface-panel) 70%, transparent) !important; }
+html[data-theme="dark"] [class~="bg-white/80"] { background-color: color-mix(in srgb, var(--ui-surface-panel) 80%, transparent) !important; }
+html[data-theme="dark"] [class~="bg-white/90"] { background-color: color-mix(in srgb, var(--ui-surface-panel) 90%, transparent) !important; }
+html[data-theme="dark"] [class~="bg-white/95"] { background-color: color-mix(in srgb, var(--ui-surface-panel) 95%, transparent) !important; }
+
+/* Password screens layer white over a photographic background in light
+   mode. In dark mode that veil must shade instead of washing out the image. */
+html[data-theme="dark"] [class~="bg-white/30"] {
+  background-color: var(--ui-overlay) !important;
+}
+
+html[data-theme="dark"] [class~="hover:bg-white"]:hover,
+html[data-theme="dark"] [class~="hover:bg-white/50"]:hover,
+html[data-theme="dark"] [class~="hover:bg-white/70"]:hover,
+html[data-theme="dark"] [class~="hover:bg-gray-50"]:hover,
+html[data-theme="dark"] [class~="hover:bg-gray-100"]:hover {
+  background-color: #302b37 !important;
+}
+
+/* Utility variants such as `focus:bg-white` are separate compiled
+   classes, so the plain `.bg-white` dark override never reaches them.
+   Keep focused fields on the raised dark surface across every route. */
+html[data-theme="dark"] [class~="focus:bg-white"]:focus,
+html[data-theme="dark"] [class~="focus-within:bg-white"]:focus-within {
+  background-color: var(--ui-surface-raised) !important;
+}
+
+/* The dark accent is intentionally soft for decorative text, but keyboard
+   and field focus need a brighter pink edge to stay easy to find. */
+html[data-theme="dark"] :focus-visible {
+  outline: 2px solid var(--ui-focus-ring) !important;
+  outline-offset: 2px;
+}
+html[data-theme="dark"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea):focus {
+  color: var(--ui-content-primary) !important;
+  border-color: var(--ui-focus-ring) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-focus-ring) 22%, transparent) !important;
+}
+html[data-theme="dark"] :is(input, select, textarea)[aria-invalid="true"]:focus {
+  border-color: var(--color-danger) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 25%, transparent) !important;
+}
+html[data-theme="dark"] :is(input, select, textarea)[aria-invalid="true"]:focus-visible {
+  outline-color: var(--color-danger) !important;
+}
+
+.cart-search-field {
+  color: var(--ui-content-primary);
+  background-color: var(--ui-surface-raised);
+  border-color: var(--ui-border-strong);
+  transition: border-color var(--duration-micro) var(--ease-out-soft),
+    background-color var(--duration-micro) var(--ease-out-soft),
+    box-shadow var(--duration-micro) var(--ease-out-soft);
+}
+.cart-search-field::placeholder { color: var(--ui-content-muted); opacity: 1; }
+.cart-search-field:focus {
+  background-color: var(--ui-surface-raised);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+.cart-search-field::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.cart-search-clear {
+  color: var(--ui-content-muted);
+  transition: color var(--duration-micro) var(--ease-out-soft), background-color var(--duration-micro) var(--ease-out-soft);
+}
+.cart-search-clear:hover { color: var(--ui-content-primary); background-color: var(--ui-surface-inset); }
+
+html[data-theme="dark"] .text-primary {
+  color: #c4b1f4 !important;
+}
+
+html[data-theme="dark"] .panel,
+html[data-theme="dark"] .list-group {
+  background-color: var(--ui-surface-panel);
+  border-color: var(--ui-border-subtle);
+}
+
+/* The customer loyalty panel has a two-stop Tailwind gradient ending in
+   literal white. Replace that end stop as well as utility backgrounds. */
+html[data-theme="dark"] .customer-loyalty-panel {
+  background-image: linear-gradient(135deg, #302544 0%, #1D1A23 100%) !important;
+}
+
+/* Semantic status tokens are bright foreground colors in dark mode. Keep
+   their solid fills deep enough for white icons and labels to stay legible. */
+html[data-theme="dark"] .bg-success { background-color: #176B4A !important; }
+html[data-theme="dark"] .bg-warning { background-color: #79591D !important; }
+html[data-theme="dark"] .bg-danger { background-color: #A72F3D !important; }
+html[data-theme="dark"] .bg-info { background-color: #255A91 !important; }
+html[data-theme="dark"] .btn-danger {
+  background: #A72F3D;
+  color: #FFFFFF;
+}
+html[data-theme="dark"] .btn-danger:hover:not(:disabled) { background: #852533; }
+
+html[data-theme="dark"] .btn-secondary {
+  background: var(--ui-surface-raised);
+  color: var(--ui-content-secondary);
+  border-color: var(--ui-border-strong);
+}
+
+html[data-theme="dark"] .btn-secondary:hover:not(:disabled) { background: var(--color-sage-dark); }
+html[data-theme="dark"] .btn-ghost { color: var(--ui-content-secondary); }
+html[data-theme="dark"] .btn-ghost:hover:not(:disabled) { background: var(--color-sage-dark); color: var(--ui-content-primary); }
+html[data-theme="dark"] .figure { color: var(--ui-content-primary); }
+html[data-theme="dark"] .label-section { color: var(--ui-content-muted); }
+html[data-theme="dark"] .pill-neutral { color: var(--ui-content-secondary); }
+
+/* Presence labels use inline peer colors, but their surfaces and copy
+   follow the same theme contract as the rest of the interface. */
+html[data-theme="dark"] .live-peer-label {
+  border-color: var(--ui-border-strong);
+  background: var(--ui-surface-raised);
+  box-shadow: 0 5px 18px var(--ui-shadow), 0 1px 3px var(--ui-shadow);
+}
+html[data-theme="dark"] .live-peer-avatar {
+  background: color-mix(in srgb, var(--peer-color) 20%, var(--ui-surface-inset));
+}
+html[data-theme="dark"] .live-peer-name { color: var(--ui-content-primary); }
+html[data-theme="dark"] .live-peer-activity { color: var(--ui-content-muted); }
+
+html[data-theme="dark"] .auth-shell {
+  background:
+    radial-gradient(ellipse at 10% 10%, rgb(80 44 73 / 38%), transparent 34%),
+    radial-gradient(ellipse at 84% 88%, rgb(57 46 91 / 38%), transparent 38%),
+    #131118;
+}
+html[data-theme="dark"] .auth-card {
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(29 26 35 / 92%);
+  box-shadow: 0 30px 90px rgb(0 0 0 / 32%), inset 0 1px 0 rgb(255 255 255 / 5%);
+}
+html[data-theme="dark"] .auth-shell .auth-input {
+  background: #25212c !important;
+  border-color: #403a49 !important;
+  color: #f4f0f7 !important;
+}
+html[data-theme="dark"] .auth-shell .auth-input::placeholder { color: #aaa2b1; }
+html[data-theme="dark"] .auth-shell .auth-input:focus { background: #2c2634 !important; }
+html[data-theme="dark"] .auth-shell :is(h1, h2, p, label, span) { color: #e7e2ed; }
+html[data-theme="dark"] .auth-shell [class~="hover:bg-[#F4EEF7]"]:hover { background-color: var(--ui-surface-inset) !important; }
+html[data-theme="dark"] .auth-shell [class~="text-[#9B91A6]"] { color: var(--ui-content-muted) !important; }
+html[data-theme="dark"] .auth-shell .auth-headline-accent {
+  color: #d2a4da;
+  background-image: linear-gradient(100deg, #ec9dc2 0%, #b6a0ea 85%);
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="dark"] .splash-screen {
+  background: radial-gradient(ellipse at 50% 48%, #211c29 0%, #191620 42%, #131118 100%);
+}
+html[data-theme="dark"] .splash-wordmark { color: #d2c4f1; }
+html[data-theme="dark"] .splash-caption,
+html[data-theme="dark"] .splash-loading-label,
+html[data-theme="dark"] .splash-version { color: #aaa2b1; }
+
+/* The assistant uses bespoke light pink hex colors rather than the app
+   tokens, so give its shell and text the same dark surfaces explicitly. */
+html[data-theme="dark"] .assistant-panel-motion [role="dialog"] {
+  background-color: #1d1a23 !important;
+  border-color: #403543 !important;
+}
+html[data-theme="dark"] .assistant-panel-motion header,
+html[data-theme="dark"] .assistant-panel-motion form,
+html[data-theme="dark"] .assistant-panel-motion .bg-white {
+  background-color: #25212c !important;
+  border-color: #403543 !important;
+}
+html[data-theme="dark"] .assistant-panel-motion [class*="bg-[#FFF"],
+html[data-theme="dark"] .assistant-panel-motion [class*="bg-[#FFFB"] {
+  background-color: #25212c !important;
+}
+/* Older assistant actions also use pale hex fills that do not start with
+   #FFF. Give each of those current surfaces a dark equivalent so the shared
+   light-text mapping never lands on a near-white background. */
+html[data-theme="dark"] .assistant-panel-motion [class~="bg-[#FCE8F0]"],
+html[data-theme="dark"] .assistant-panel-motion [class~="bg-[#F8F3F6]"],
+html[data-theme="dark"] .assistant-panel-motion [class~="bg-[#F8F1F5]"],
+html[data-theme="dark"] .assistant-panel-motion [class~="bg-[#EEE6EB]"],
+html[data-theme="dark"] .assistant-panel-motion [class~="bg-[#F8EEF3]"],
+html[data-theme="dark"] .assistant-panel-motion [class~="bg-[#FAF6F8]"] {
+  background-color: #302b37 !important;
+}
+html[data-theme="dark"] .assistant-panel-motion [class~="bg-[#EAF7EF]"] {
+  background-color: #19362b !important;
+  color: #b8f0d5 !important;
+}
+html[data-theme="dark"] .assistant-panel-motion [class*="hover:bg-[#"]:hover,
+html[data-theme="dark"] .assistant-panel-motion [class~="focus-within:bg-white"]:focus-within {
+  background-color: #332b38 !important;
+}
+html[data-theme="dark"] .assistant-panel-motion [class*="border-[#"] {
+  border-color: #403543 !important;
+}
+html[data-theme="dark"] .assistant-panel-motion [class*="text-[#"] {
+  color: #d7d0dc !important;
+}
+html[data-theme="dark"] .assistant-panel-motion input,
+html[data-theme="dark"] .assistant-panel-motion select,
+html[data-theme="dark"] .assistant-panel-motion textarea {
+  color: #f1edf5 !important;
+}
+html[data-theme="dark"] [role="menu"] {
+  border-color: #403543 !important;
+  color: #e7e2ed;
+}
+html[data-theme="dark"] [role="menu"] [class*="text-[#"] {
+  color: #d7d0dc !important;
+}
+
+html[data-theme="dark"] .recharts-cartesian-grid line,
+html[data-theme="dark"] .recharts-cartesian-axis-line,
+html[data-theme="dark"] .recharts-cartesian-axis-tick-line {
+  stroke: #403a49 !important;
+}
+html[data-theme="dark"] .recharts-cartesian-axis-tick-value,
+html[data-theme="dark"] .recharts-legend-item-text {
+  fill: #aaa2b1 !important;
+  color: #aaa2b1 !important;
+}
+html[data-theme="dark"] .recharts-default-tooltip {
+  border-color: #403543 !important;
+  background-color: #25212c !important;
+  color: #e7e2ed !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme] body,
+  html[data-theme] .bg-white,
+  html[data-theme] .panel,
+  html[data-theme] .list-group {
+    transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+  }
+}
+
+@media (max-width: 1023px) {
+  .auth-card { padding: 32px 34px 28px; }
+}
+@media (max-width: 520px) {
+  .auth-card { padding: 28px 22px 24px; border-radius: 24px; }
+  .auth-card-topline { margin-bottom: 24px; }
+  .splash-emblem-wrap { width: 148px; height: 148px; }
+  .splash-glyph { width: 132px; height: 82px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-light, .auth-layout, .auth-card-wrap, .auth-form-enter, .auth-error,
+  .auth-orbit, .auth-logo-aura, .auth-hero-glyph, .auth-spark,
+  .auth-loading-glyph, .splash-light, .splash-glyph, .splash-trail,
+  .splash-content, .splash-halo, .splash-wordmark, .splash-caption,
+  .splash-progress span, .splash-loading-label {
+    animation: none !important;
+  }
+  .splash-progress span { transform: scaleX(1); }
+  .auth-logo-aura { opacity: .65; }
+  .auth-spark { opacity: .6; }
+  .splash-trail { opacity: .75; }
+  .splash-halo { opacity: .3; }
+}
+
+.toast-item { animation: toast-in 220ms cubic-bezier(0.22,1,0.36,1); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(24px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* A row arriving should look like it arrived. */
+.row-enter { animation: row-in var(--duration-small) var(--ease-out-soft); }
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Lists fill in rather than appearing as a block. Six steps is enough
+   to read as a cascade; beyond that the last item feels late. */
+.stagger > * {
+  animation: row-in var(--duration-small) var(--ease-out-soft) backwards;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 30ms; }
+.stagger > *:nth-child(3) { animation-delay: 60ms; }
+.stagger > *:nth-child(4) { animation-delay: 90ms; }
+.stagger > *:nth-child(5) { animation-delay: 120ms; }
+.stagger > *:nth-child(n+6) { animation-delay: 150ms; }
+
+/* A number that changed should say so — briefly, once. */
+.figure-bump { animation: bump 400ms var(--ease-spring); }
+@keyframes bump {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* ── The sale moment ──────────────────────────────────────────────
+   The one place in this app allowed a flourish. It fires on the beat
+   that matters — money earned — and it never blocks: no dismiss, no
+   modal, the next sale can start mid-animation.
+   ─────────────────────────────────────────────────────────────── */
+
+.sale-pop { animation: sale-pop 420ms var(--ease-spring); }
+@keyframes sale-pop {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* A ring expanding out of the tick. */
+.sale-ring { animation: sale-ring 900ms var(--ease-out-quick) 120ms; }
+@keyframes sale-ring {
+  0%   { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Petals drift as they fall — straight down reads as debris, a lateral
+   drift and a slow spin reads as something light. */
+@keyframes petal-fall {
+  0% {
+    transform: translate3d(0, -10px, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% { opacity: 0.9; }
+  100% {
+    transform: translate3d(var(--drift, 0px), 110vh, 0) rotate(var(--spin, 180deg));
+    opacity: 0;
+  }
+}
+
+/* Panels arriving on a page, distinct from modals arriving over one. */
+.panel-enter { animation: panel-in var(--duration-large) var(--ease-out-soft) backwards; }
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-mark, .logo-bloom, .logo-rule, .logo-caption, .toast-item, .row-enter,
+  .sheet-enter, .drawer-enter, .popover-enter, .scrim-enter, .skeleton,
+  .stagger > *, .figure-bump, .panel-enter, .sale-pop, .sale-ring {
+    animation: none; opacity: 1; transform: none; filter: none; clip-path: none;
+  }
+
+  /* Press and lift are transforms, not animations — disable separately. */
+  .press:active, .btn:active:not(:disabled), .lift:hover, .lift:active {
+    transform: none;
+  }
+
+  /* Petals are pure decoration — hide them outright rather than
+     showing nine static dots frozen at the top of the screen. */
+  [style*="petal-fall"] { display: none !important; }
+
+  /* Blanket cap: nothing anywhere moves for longer than an instant. */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .logo-bloom { opacity: 0.4; transform: scale(1); }
+  .logo-rule  { width: 72px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -126,3 +1436,34 @@
     margin: 8px 0 !important;
   }
 }
+
+/* Verified delivery-route summary: a calm success surface that stays legible
+   in both the light and data-theme dark palettes. */
+.shipping-route-summary {
+  color: #064e3b;
+  background: #f0fdf4;
+  border: 1px solid #a7f3d0;
+}
+.shipping-route-summary__header { border-color: #a7f3d0; }
+.shipping-route-summary__icon { color: #047857; background: #d1fae5; }
+.shipping-route-summary__badge { color: #047857; background: rgb(255 255 255 / 75%); border-color: #a7f3d0; }
+.shipping-route-summary__metric { background: rgb(255 255 255 / 75%); border-color: #a7f3d0; }
+.shipping-route-summary__title { color: #064e3b; }
+.shipping-route-summary__muted { color: #047857; }
+.shipping-route-error {
+  color: var(--color-danger);
+  background: var(--color-danger-subtle);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 32%, transparent);
+}
+
+html[data-theme="dark"] .shipping-route-summary {
+  color: #eafff3;
+  background: #1a2b25;
+  border-color: #285642;
+}
+html[data-theme="dark"] .shipping-route-summary__header { border-color: #285642; }
+html[data-theme="dark"] .shipping-route-summary__icon { color: #a7ebc8; background: #244b39; }
+html[data-theme="dark"] .shipping-route-summary__badge,
+html[data-theme="dark"] .shipping-route-summary__metric { color: #d0f4e0; background: #202f29; border-color: #315b46; }
+html[data-theme="dark"] .shipping-route-summary__title { color: #eafff3; }
+html[data-theme="dark"] .shipping-route-summary__muted { color: #b8f0d5; }

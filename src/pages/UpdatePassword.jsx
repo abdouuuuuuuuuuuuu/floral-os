@@ -58,7 +58,7 @@ function UpdatePassword() {
     <div className="min-h-screen w-full flex items-center justify-center relative overflow-hidden">
       <div 
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: `url('/splash-bg.png')` }}
+        style={{ backgroundImage: `url('./splash-bg.png')` }}
       />
       <div className="absolute inset-0 bg-white/30" />
       

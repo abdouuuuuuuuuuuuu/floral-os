@@ -2,20 +2,25 @@
   "name": "floral-os",
   "private": true,
   "version": "1.0.0",
+  "description": "Blossom POS - Flower Shop Management",
+  "author": "Zaki <abdou.noui311@gmail.com>",
   "type": "module",
-  "main": "./electron/main.js",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "assistant:eval": "node scripts/evaluate-assistant.mjs",
+    "assistant:test": "node scripts/test-assistant-catalog.mjs",
     "preview": "vite preview",
     "lint": "oxlint .",
     "electron:dev": "npm run build && electron .",
     "electron:pack": "npm run build && electron-builder",
-    "electron:build": "npm run build && electron-builder --win"
+    "electron:build": "npm run build && electron-builder --win --publish always"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
-    "electron-updater": "^6.8.9",
+    "electron-updater": "^6.3.0",
+    "lottie-react": "2.4.1",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -36,34 +41,36 @@
     "vite": "^6.3.0"
   },
   "build": {
-  "appId": "com.blossom.pos",
-  "productName": "Blossom POS",
-  "asar": false,
-  "directories": {
-    "output": "release",
-    "buildResources": "public"
-  },
-  "files": [
-    "dist",
-    "electron",
-    "public"
-  ],
-  "publish": {
-    "provider": "github",
-    "owner": "YOUR_GITHUB_USERNAME",
-    "repo": "floral-os",
-    "releaseType": "release"
-  },
-  "win": {
-    "target": "nsis",
-    "icon": "public/logo-Black.png"
-  },
-  "nsis": {
-    "oneClick": false,
-    "allowToChangeInstallationDirectory": true,
-    "createDesktopShortcut": true,
-    "differentialDownload": false
+    "appId": "com.blossom.pos",
+    "productName": "Blossom POS",
+    "asar": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "public"
+    },
+    "files": [
+      "dist",
+      "electron",
+      "public"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "abdouuuuuuuuuuuuu",
+      "repo": "floral-os",
+      "releaseType": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "createStartMenuShortcut": true
+    }
   }
 }
-}
-  

@@ -15,6 +15,10 @@ export function useProductsAdmin() {
     const { data, error } = await supabase
       .from('products')
       .select('*')
+      // Alphabetical is a SEARCH result, not a browse order. Nobody asks
+      // "what starts with C" — they ask what's running out. Low stock
+      // first puts the actionable rows at the top.
+      .order('stock_level', { ascending: true, nullsFirst: false })
       .order('item_name')
 
     if (error) {
@@ -71,34 +75,61 @@ export function useProductsAdmin() {
     setSaving(true)
     setError(null)
 
+    // Stock is never written as an absolute value from here: a sale made while
+    // the form was open would be overwritten. set_product_stock only applies
+    // the new count if stock still matches what the editor saw.
+    let stockProduct = null
+    if (updates.stock_level !== undefined && updates.stock_level !== updates.expected_stock_level) {
+      if (updates.expected_stock_level === undefined) {
+        setSaving(false)
+        const message = 'Reopen the product before changing its stock.'
+        setError(message)
+        return { success: false, error: message }
+      }
+      const { data: stockData, error: stockError } = await supabase.rpc('set_product_stock', {
+        p_product_id: id,
+        p_expected_stock: updates.expected_stock_level,
+        p_new_stock: updates.stock_level,
+        p_reason: 'Stock count correction',
+      })
+      if (stockError) {
+        setSaving(false)
+        setError(stockError.message)
+        return { success: false, error: stockError.message }
+      }
+      stockProduct = stockData?.product ?? null
+    }
+
     const dbUpdates = {
       ...(updates.item_name !== undefined && { item_name: updates.item_name }),
       ...(updates.retail_price !== undefined && { retail_price: updates.retail_price }),
-      ...(updates.stock_level !== undefined && { 
-        stock_level: updates.stock_level,
-        product_status: updates.stock_level > 0 ? 'in_stock' : 'out_of_stock'
-      }),
       ...(updates.category !== undefined && { category: updates.category }),
       ...(updates.description !== undefined && { description: updates.description }),
       ...(updates.image_url !== undefined && { image_url: updates.image_url }),
       ...(updates.is_active !== undefined && { is_active: updates.is_active }),
+      ...(updates.is_starred !== undefined && { is_starred: updates.is_starred }),
     }
 
-    const { data, error } = await supabase
-      .from('products')
-      .update(dbUpdates)
-      .eq('product_id', id)
-      .select()
-      .single()
+    let data = stockProduct
+    if (Object.keys(dbUpdates).length) {
+      const result = await supabase
+        .from('products')
+        .update(dbUpdates)
+        .eq('product_id', id)
+        .select()
+        .single()
+
+      if (result.error) {
+        setSaving(false)
+        setError(result.error.message)
+        return { success: false, error: result.error.message }
+      }
+      data = result.data
+    }
 
     setSaving(false)
 
-    if (error) {
-      setError(error.message)
-      return { success: false, error: error.message }
-    }
-
-    setProducts((prev) => prev.map((p) => (p.product_id === id ? data : p)))
+    if (data) setProducts((prev) => prev.map((p) => (p.product_id === id ? data : p)))
     return { success: true, data }
   }, [])
 
@@ -113,23 +144,11 @@ export function useProductsAdmin() {
       return { success: false, error: 'Product not found' }
     }
 
-    const currentStock = product.stock_level || 0
-    if (quantity > currentStock) {
-      setSaving(false)
-      return { success: false, error: `Cannot remove more than ${currentStock} units` }
-    }
-
-    const newStock = Math.max(0, currentStock - quantity)
-
-    const { data, error } = await supabase
-      .from('products')
-      .update({
-        stock_level: newStock,
-        product_status: newStock > 0 ? 'in_stock' : 'out_of_stock',
-      })
-      .eq('product_id', id)
-      .select()
-      .single()
+    const { data, error } = await supabase.rpc('remove_product_stock', {
+      p_product_id: id,
+      p_quantity: quantity,
+      p_reason: reason || 'Damaged/Spoiled',
+    })
 
     setSaving(false)
 
@@ -138,18 +157,15 @@ export function useProductsAdmin() {
       return { success: false, error: error.message }
     }
 
-    // Log the adjustment
-    await supabase.from('stock_adjustments').insert({
-      product_id: id,
-      adjustment_type: 'removal',
-      quantity: -quantity,
-      reason: reason || 'Damaged/Spoiled',
-      previous_stock: currentStock,
-      new_stock: newStock,
-    })
+    const updatedProduct = data?.product
+    if (!updatedProduct) {
+      const message = 'Stock adjustment returned no updated product'
+      setError(message)
+      return { success: false, error: message }
+    }
 
-    setProducts((prev) => prev.map((p) => (p.product_id === id ? data : p)))
-    return { success: true, data, removed: quantity, remaining: newStock }
+    setProducts((prev) => prev.map((p) => (p.product_id === id ? updatedProduct : p)))
+    return { success: true, data: updatedProduct, removed: data.removed, remaining: data.remaining }
   }, [products])
 
   // SOFT DELETE — sets is_active = false instead of hard-deleting

@@ -18,48 +18,67 @@ export default function PriceAdjuster({ value = 0, onChange, currency = 'DA', st
   const nudge = (delta) => onChange(value + delta)
 
   return (
-    <div className="flex items-center gap-2">
+    // One control, not four coloured objects.
+    //
+    // This was a red circle, a green pill, a number, a currency label
+    // and a green circle — five elements, three semantic colours, for
+    // adjusting a single value. Red and green mean "money out" and
+    // "money in" elsewhere in this app; spending them on a stepper
+    // makes them mean nothing.
+    //
+    // Now: one field, quiet steppers, and colour used ONLY to show
+    // whether the adjustment is a discount or a surcharge, which is the
+    // one thing here that actually carries meaning.
+    <div className={`flex items-center rounded-xl border overflow-hidden transition-colors ${
+      value === 0
+        ? 'border-slate-200 bg-white'
+        : isDiscount
+          ? 'border-danger/30 bg-danger-subtle'
+          : 'border-success/30 bg-success-subtle'
+    }`}>
       <button
         type="button"
         onClick={() => nudge(-step)}
-        className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 hover:border-rose-300 flex items-center justify-center transition-all active:scale-95"
+        aria-label={`Decrease by ${step}`}
+        className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-black/[0.03] press shrink-0"
       >
-        <Minus size={16} strokeWidth={2.5} />
+        <Minus size={15} strokeWidth={2.5} />
       </button>
 
-      <div className="flex-1 relative">
-        <button
-          type="button"
-          onClick={toggleSign}
-          className={`absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
-            isDiscount
-              ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
-              : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-          }`}
-        >
-          {isDiscount ? 'DISC' : 'ADD'}
-        </button>
+      <button
+        type="button"
+        onClick={toggleSign}
+        title="Switch between discount and surcharge"
+        className={`text-2xs font-semibold px-2 py-0.5 rounded-md shrink-0 press ${
+          value === 0
+            ? 'text-slate-400 hover:bg-black/[0.04]'
+            : isDiscount
+              ? 'text-danger hover:bg-danger/10'
+              : 'text-success hover:bg-success/10'
+        }`}
+      >
+        {isDiscount ? '−' : '+'}
+      </button>
 
-        <input
-          type="number"
-          min="0"
-          step={step}
-          value={absVal}
-          onChange={(e) => setAbs(e.target.value)}
-          className="w-full pl-[3.2rem] pr-8 py-2.5 text-center rounded-xl border border-gray-200 bg-white focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-sm font-bold text-gray-800 transition-all"
-        />
+      <input
+        type="number"
+        min="0"
+        step={step}
+        value={absVal}
+        onChange={(e) => setAbs(e.target.value)}
+        aria-label={isDiscount ? 'Discount amount' : 'Surcharge amount'}
+        className="flex-1 min-w-0 px-1 py-2.5 bg-transparent border-0 outline-none text-sm font-semibold text-right tabular text-slate-800"
+      />
 
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">
-          {currency}
-        </span>
-      </div>
+      <span className="text-2xs text-slate-400 pr-2 shrink-0">{currency}</span>
 
       <button
         type="button"
         onClick={() => nudge(step)}
-        className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 flex items-center justify-center transition-all active:scale-95"
+        aria-label={`Increase by ${step}`}
+        className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-black/[0.03] press shrink-0"
       >
-        <Plus size={16} strokeWidth={2.5} />
+        <Plus size={15} strokeWidth={2.5} />
       </button>
     </div>
   )

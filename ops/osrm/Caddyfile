@@ -1,0 +1,10 @@
+:8080 {
+	@authorized header Authorization "Bearer {$ROUTER_API_TOKEN}"
+	handle @authorized {
+		request_header -Authorization
+		reverse_proxy osrm:5000
+	}
+	handle {
+		respond "Unauthorized" 401
+	}
+}

@@ -1,50 +1,33 @@
+// src/components/layout/RoleGuard.jsx
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../../hooks/useAuth'
 import { Loader2 } from 'lucide-react'
-
-const routePermissions = {
-  '/dashboard': ['owner', 'manager', 'florist', 'cashier', 'delivery'],
-  '/products': ['owner', 'manager', 'florist'],
-  '/cart': ['owner', 'manager', 'florist', 'cashier'],
-  '/checkout': ['owner', 'manager', 'florist', 'cashier'],
-  '/orders': ['owner', 'manager', 'florist', 'cashier', 'delivery'],
-  '/orders/receipt': ['owner', 'manager', 'florist', 'cashier', 'delivery'],
-  '/delivery': ['owner', 'manager', 'delivery'],
-  '/team': ['owner', 'manager'],
-  '/settings': ['owner', 'manager'],
-  '/customers': ['owner', 'manager', 'florist', 'cashier'],
-  '/reports': ['owner', 'manager'],
-  '/suppliers': ['owner', 'manager'],
-  '/coffre-forte': ['owner', 'manager', 'cashier'],
-  '/quick-sale': ['owner', 'manager', 'florist', 'cashier'],
-}
+import { useAuth } from '../../context/AuthContext'
+import { allowedRolesForPath } from '../../lib/permissions'
 
 export default function RoleGuard({ children }) {
-  const { profile, role, loading } = useAuth()
+  const { profile, role, loading, initialized } = useAuth()
   const location = useLocation()
 
-  if (loading) {
+  if (loading || !initialized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <Loader2 className="animate-spin h-10 w-10 text-primary" />
+        <span className="sr-only">Checking your access…</span>
       </div>
     )
   }
 
-  if (!profile) {
-    return <Navigate to="/auth/login" replace />
-  }
+  // No profile means the account exists in auth but has no role. Sending
+  // them to /auth/login while ProtectedRoute sees a valid session is how
+  // you get an infinite redirect. Send them somewhere terminal instead.
+  if (!profile) return <Navigate to="/forbidden" replace />
+  if (profile.is_active === false) return <Navigate to="/forbidden" replace />
 
-  const currentPath = location.pathname
-  const allowedRoles = routePermissions[currentPath]
+  const allowed = allowedRolesForPath(location.pathname)
 
-  if (!allowedRoles) {
-    return children
-  }
-
-  if (!allowedRoles.includes(role)) {
-    return <Navigate to="/forbidden" replace />
-  }
+  // Unknown route: deny. An unlisted page should not be open to everyone.
+  if (!allowed) return <Navigate to="/forbidden" replace />
+  if (!allowed.includes(role)) return <Navigate to="/forbidden" replace />
 
   return children
 }

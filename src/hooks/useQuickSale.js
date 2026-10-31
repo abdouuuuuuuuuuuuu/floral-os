@@ -1,158 +1,174 @@
-import { useState, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
+// src/hooks/useQuickSale.js
+//
+// The sale itself now goes through lib/orders.createOrder(), which
+// calls the create_order RPC. This hook no longer duplicates order
+// numbering, item insertion, or stock decrementing — that logic lived
+// in two places and drifted apart.
+
+import { useState, useCallback, useEffect } from 'react'
+import { createOrder } from '../lib/orders'
+import { useAuth } from '../context/AuthContext'
+import { loyaltyDiscountForPoints, normalizeRedeemedPoints } from '../lib/loyalty'
+
+// Restore a cart that survived a refresh, a crash, or an accidental
+// Alt+F4 mid-sale. Previously the cart was pure useState and vanished.
+function loadPersistedCart(key) {
+  if (!key) return []
+  try {
+    const raw = sessionStorage.getItem(key)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function persistCart(key, cart) {
+  if (!key) return
+  try {
+    if (cart.length) sessionStorage.setItem(key, JSON.stringify(cart))
+    else sessionStorage.removeItem(key)
+  } catch {
+    /* noop */
+  }
+}
 
 export function useQuickSale() {
-  const [quickCart, setQuickCart] = useState([])
+  const { user } = useAuth()
+  const storageKey = user?.id ? `blossom.quick-cart:${user.id}` : null
+  const [quickCart, setQuickCartRaw] = useState([])
+  const [loadedKey, setLoadedKey] = useState(null)
   const [loading, setLoading] = useState(false)
   const [priceAdjustment, setPriceAdjustment] = useState(0)
 
-  const addToQuickCart = (product) => {
-    setQuickCart(prev => {
-      const existing = prev.find(item => item.id === product.id)
+  useEffect(() => {
+    setQuickCartRaw(loadPersistedCart(storageKey))
+    setLoadedKey(storageKey)
+  }, [storageKey])
+
+  const setQuickCart = useCallback((updater) => {
+    setQuickCartRaw((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      if (loadedKey === storageKey) persistCart(storageKey, next)
+      return next
+    })
+  }, [loadedKey, storageKey])
+
+  const addToQuickCart = useCallback((product) => {
+    setQuickCart((prev) => {
+      const existing = prev.find((item) => item.id === product.id)
       if (existing) {
-        if (existing.quantity >= product.stock_level) return prev
-        return prev.map(item =>
+        // No stock ceiling — a florist can sell what's physically on
+        // the bench even when the count is stale.
+        return prev.map((item) =>
           item.id === product.id
-            ? { ...item, quantity: item.quantity + 1, totalPrice: (item.quantity + 1) * item.price }
+            ? {
+                ...item,
+                quantity: item.quantity + 1,
+                totalPrice: (item.quantity + 1) * item.price,
+              }
             : item
         )
       }
       return [...prev, { ...product, quantity: 1, totalPrice: product.price }]
     })
-  }
+  }, [setQuickCart])
 
-  const updateQuantity = (productId, qty) => {
+  const updateQuantity = useCallback((productId, qty) => {
     if (qty <= 0) {
-      setQuickCart(prev => prev.filter(item => item.id !== productId))
+      setQuickCart((prev) => prev.filter((item) => item.id !== productId))
       return
     }
-    setQuickCart(prev => prev.map(item =>
-      item.id === productId
-        ? { ...item, quantity: qty, totalPrice: qty * item.price }
-        : item
-    ))
-  }
+    setQuickCart((prev) =>
+      prev.map((item) =>
+        item.id === productId
+          ? { ...item, quantity: qty, totalPrice: qty * item.price }
+          : item
+      )
+    )
+  }, [setQuickCart])
 
-  const clearQuickCart = () => {
+  const clearQuickCart = useCallback(() => {
     setQuickCart([])
     setPriceAdjustment(0)
-  }
+  }, [setQuickCart])
 
   const quickSubtotal = quickCart.reduce((sum, item) => sum + item.totalPrice, 0)
   const quickTotal = quickSubtotal
   const adjustedTotal = Math.max(0, quickTotal + priceAdjustment)
 
-  const completeQuickSale = useCallback(async (paymentMethod, clientSource, notes = '', customer = null) => {
-    if (quickCart.length === 0) return { error: 'Cart is empty' }
+  const completeQuickSale = useCallback(
+    async (paymentMethod, clientSource, notes = '', customer = null, paymentData = null) => {
+      if (quickCart.length === 0) return { error: 'Cart is empty' }
 
-    setLoading(true)
+      setLoading(true)
 
-    const itemsSnapshot = quickCart.map(item => ({ ...item }))
-    const snapshot = {
-      items: itemsSnapshot,
-      subtotal: quickSubtotal,
-      total: adjustedTotal,
-      priceAdjustment,
-      customerName: customer?.full_name || 'Walk-in Customer',
-      customerPhone: customer?.phone || null,
-      customerId: customer?.customer_id || null,
-    }
+      // Snapshot before the await. The cart is cleared on success and
+      // the receipt still needs these values.
+      const snapshot = {
+        items: quickCart.map((item) => ({ ...item })),
+        subtotal: quickSubtotal,
+        total: adjustedTotal,
+        priceAdjustment,
+        customerName: customer?.full_name || 'Walk-in Customer',
+        customerPhone: customer?.phone || null,
+        customerId: customer?.customer_id || null,
+      }
+      const loyaltyPointsToRedeem = normalizeRedeemedPoints(paymentData?.loyaltyPointsToRedeem)
+      const loyaltyDiscount = loyaltyDiscountForPoints(loyaltyPointsToRedeem)
 
-    try {
-      const { data: lastOrder, error: lastOrderErr } = await supabase
-        .from('orders')
-        .select('order_number')
-        .order('created_at', { ascending: false })
-        .limit(1)
-
-      if (lastOrderErr) throw lastOrderErr
-
-      const lastNum = lastOrder?.[0]?.order_number ? parseInt(lastOrder[0].order_number) : 0
-      const newOrderNumber = String(lastNum + 1).padStart(3, '0')
-
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          order_number: newOrderNumber,
-          client_name: snapshot.customerName,
-          client_phone: snapshot.customerPhone,
-          customer_id: snapshot.customerId,
-          delivery_date: null,
-          delivery_method: 'pickup',
-          payment_method: paymentMethod || 'cash',
-          client_source: clientSource || 'inhouse',
+      try {
+        const { order, warnings } = await createOrder({
+          clientName: snapshot.customerName,
+          clientPhone: snapshot.customerPhone,
+          customerId: snapshot.customerId,
+          deliveryMethod: 'pickup',
+          paymentMethod: paymentMethod || 'cash',
+          clientSource: clientSource || 'inhouse',
           status: 'done',
+          orderType: 'quick_sale',
           notes: notes || 'Quick sale',
-          total_amount: snapshot.total,
-          subtotal_amount: snapshot.subtotal,
-          tax_amount: 0,
-          amount_paid: 0,
-          amount_due: snapshot.total,
-          payment_status: 'unpaid',
-          price_adjustment: snapshot.priceAdjustment,
+          items: snapshot.items,
+          subtotal: snapshot.subtotal,
+          total: snapshot.total,
+          priceAdjustment: snapshot.priceAdjustment,
+          loyaltyPointsToRedeem,
+          paymentStatus: paymentData?.paymentStatus || 'paid',
+          amountPaid: paymentData?.amountPaid ?? snapshot.total,
+          amountDue: paymentData?.amountDue ?? 0,
+          paymentNotes: paymentData?.notes || '',
         })
-        .select()
-        .single()
 
-      if (orderError) throw orderError
+        clearQuickCart()
 
-      const orderItems = itemsSnapshot.map(item => ({
-        order_id: orderData.id,
-        product_id: item.id,
-        quantity: item.quantity,
-        unit_price: item.price,
-        total_price: item.totalPrice,
-        product_name: item.name || item.item_name || null,
-        product_image: item.image_url || null,
-        color: item.color || null,
-        flower_type: item.flower_type || null,
-        category: item.category || null,
-      }))
-
-      const { error: itemsError } = await supabase
-        .from('order_items')
-        .insert(orderItems)
-
-      if (itemsError) throw itemsError
-
-      for (const item of itemsSnapshot) {
-        const { data: product, error: fetchErr } = await supabase
-          .from('products')
-          .select('stock_level')
-          .eq('product_id', item.id)
-          .single()
-
-        if (fetchErr || !product) {
-          console.error(`Stock fetch failed for product ${item.id}:`, fetchErr)
-          continue
+        return {
+          success: true,
+          orderNumber: order.order_number,
+          orderId: order.id,
+          paymentStatus: paymentData?.paymentStatus || 'paid',
+          amountPaid: paymentData?.amountPaid ?? snapshot.total,
+          amountDue: paymentData?.amountDue ?? 0,
+          paymentNotes: paymentData?.notes || '',
+          // Products that went negative — surface this so the florist
+          // knows the count needs a recount, without blocking the sale.
+          negativeStock: warnings.negative_stock,
+          ...snapshot,
+          customerId: order.customer_id ?? snapshot.customerId,
+          customerName: order.client_name ?? snapshot.customerName,
+          customerPhone: order.client_phone ?? snapshot.customerPhone,
+          total: Math.max(0, snapshot.total - loyaltyDiscount),
+          loyaltyPointsRedeemed: loyaltyPointsToRedeem,
         }
-
-        const newStock = Math.max(0, product.stock_level - item.quantity)
-        const { error: updateErr } = await supabase
-          .from('products')
-          .update({ stock_level: newStock })
-          .eq('product_id', item.id)
-
-        if (updateErr) {
-          console.error(`Stock update failed for product ${item.id}:`, updateErr)
-        }
+      } catch (err) {
+        // The cart is deliberately NOT cleared. The whole sale rolled
+        // back server-side, so the cashier can retry without re-scanning.
+        return { error: err.message || 'Could not complete the sale' }
+      } finally {
+        setLoading(false)
       }
-
-      clearQuickCart()
-
-      return {
-        success: true,
-        orderNumber: newOrderNumber,
-        orderId: orderData.id,
-        ...snapshot,
-      }
-    } catch (err) {
-      console.error('completeQuickSale error:', err)
-      return { error: err.message || 'Failed to complete sale' }
-    } finally {
-      setLoading(false)
-    }
-  }, [quickCart, quickSubtotal, adjustedTotal, priceAdjustment])
+    },
+    [quickCart, quickSubtotal, adjustedTotal, priceAdjustment, clearQuickCart]
+  )
 
   return {
     quickCart,
