@@ -39,3 +39,6 @@ ops/osrm/data/
 
 # Schema exports from the Supabase SQL editor
 schema_snapshot*.csv*
+
+# Stray local tooling, not part of the app
+claude-usage/
