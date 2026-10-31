@@ -1258,7 +1258,7 @@ function CoffreForte() {
                       <div key={tx.id} className="bg-white rounded-lg p-4 border border-gray-100">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <span className="text-xs font-semibold bg-amber-100 text-amber-700 px-2.5 py-1 rounded-lg">{tx.category || 'Sales'}</span>
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${/reversal/i.test(tx.category || '') ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>{tx.category || 'Sales'}</span>
                             <span className="text-xs text-gray-400 font-mono">{tx.created_at ? new Date(tx.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '--:--'}</span>
                             <span className="text-sm text-gray-600">{tx.description || 'Cash In'}</span>
                           </div>
@@ -1283,10 +1283,10 @@ function CoffreForte() {
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600"><ArrowDownCircle size={18} /></div>
                             <div>
-                              <p className="text-sm font-medium text-gray-900">{tx.description || 'Expense'}</p>
+                              <p className="text-sm font-medium text-gray-900 flex items-center gap-2">{tx.description || 'Expense'}{/reversal/i.test(tx.category || '') && <span className="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-2xs font-semibold text-indigo-700">↩ Reversal</span>}</p>
                               <p className="text-xs text-gray-500">{tx.category || 'Other'}</p>
                               <p className="text-2xs text-gray-400 mt-0.5">
-                                Paid from: <span className="font-medium text-gray-600">{tx.payment_method === 'baridimob' ? 'BaridiMob' : tx.payment_method === 'usd' ? 'USDT' : 'Cash'}</span>
+                                {/reversal/i.test(tx.category || '') ? 'Reversed to: ' : 'Paid from: '}<span className="font-medium text-gray-600">{tx.payment_method === 'baridimob' ? 'BaridiMob' : tx.payment_method === 'usd' ? 'USDT' : 'Cash'}</span>
                               </p>
                             </div>
                           </div>
