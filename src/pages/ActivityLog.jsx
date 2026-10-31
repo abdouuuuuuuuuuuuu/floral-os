@@ -23,6 +23,7 @@ const KIND_STYLE = {
   waste: { label: 'Waste', dot: 'bg-amber-600' },
   register: { label: 'Register', dot: 'bg-violet-500' },
   team: { label: 'Team', dot: 'bg-sky-600' },
+  loyalty: { label: 'Loyalty', dot: 'bg-fuchsia-500' },
   other: { label: 'Other', dot: 'bg-slate-300' },
 }
 

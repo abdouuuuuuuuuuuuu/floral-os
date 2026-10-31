@@ -93,6 +93,8 @@ BEGIN
         WHEN 'update_team_member' THEN 'team'
         WHEN 'delete_team_member' THEN 'team'
         WHEN 'set_member_status' THEN 'team'
+        WHEN 'assign_loyalty_card' THEN 'loyalty'
+        WHEN 'unlink_loyalty_card' THEN 'loyalty'
         ELSE 'other'
       END AS kind,
       raw.action,
@@ -119,6 +121,8 @@ BEGIN
       WHEN 'delete' THEN 'Order permanently deleted' || coalesce(' #' || m.order_number, '')
       WHEN 'archive' THEN 'Order archived' || coalesce(' #' || m.order_number, '')
       WHEN 'status' THEN 'Status changed' || coalesce(' #' || m.order_number, '')
+      WHEN 'loyalty' THEN CASE WHEN m.action = 'unlink_loyalty_card'
+        THEN 'Loyalty card unlinked' ELSE 'Loyalty card linked' END
       WHEN 'waste' THEN 'Flower waste recorded'
       WHEN 'register' THEN CASE WHEN m.action = 'register_opening' THEN 'Register opened' ELSE 'Register closed' END
       WHEN 'team' THEN 'Team: ' || replace(m.action, '_', ' ')
