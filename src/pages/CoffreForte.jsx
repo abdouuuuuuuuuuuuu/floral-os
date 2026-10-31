@@ -31,6 +31,14 @@ import { useShopName } from '../hooks/useShopName'
 import { useNotification } from '../context/NotificationContext'
 import { addCalendarDays, localDate } from '../lib/businessDate'
 
+// Payment methods are stored lowercase by the write paths; fold anything else
+// into cash so a stray value still reconciles somewhere.
+function normalizeMethod(value) {
+  const v = String(value || 'cash').trim().toLowerCase()
+  if (v === 'baridimob' || v === 'usd') return v
+  return 'cash'
+}
+
 const transactionTypes = {
   opening: { label: 'Opening Balance', icon: Unlock, color: 'text-emerald-700', bg: 'bg-emerald-100', border: 'border-emerald-200' },
   cash_in: { label: 'Cash In', icon: ArrowUpCircle, color: 'text-teal-700', bg: 'bg-teal-100', border: 'border-teal-200' },
@@ -582,6 +590,7 @@ function CashOutModal({ isOpen, onClose, transactions, todayCashOutByMethod, add
 
 function ClosingBalanceModal({ isOpen, onClose, computedBalance, openingBalance, todayCashIn, todayCashOut, todayCashInByMethod, todayCashOutByMethod, setClosingBalance, refresh }) {
   const [counts, setCounts] = useState({ cash: '', baridimob: '', usd: '' })
+  const [banked, setBanked] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const cashExpected = openingBalance + todayCashInByMethod.cash - todayCashOutByMethod.cash
@@ -598,21 +607,29 @@ function ClosingBalanceModal({ isOpen, onClose, computedBalance, openingBalance,
     }
     if (!isOpen) {
       setCounts({ cash: '', baridimob: '', usd: '' })
+      setBanked('')
       setSubmitting(false)
     }
   }, [isOpen, cashExpected, baridiExpected, usdExpected])
 
   const totalActual = Math.round(Number(counts.cash || 0)) + Math.round(Number(counts.baridimob || 0)) + Math.round(Number(counts.usd || 0))
   const totalDiff = totalActual - computedBalance
+  const bankedAmount = Math.max(0, Math.round(Number(banked || 0)))
+  const carriedFloat = totalActual - bankedAmount
 
   const getDiff = (actual, expected) => Math.round(Number(actual || 0)) - expected
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (totalActual < 0) return
+    if (totalActual < 0 || bankedAmount > totalActual) return
     setSubmitting(true)
     try {
-      await setClosingBalance(totalActual)
+      await setClosingBalance({
+        cash: Math.round(Number(counts.cash || 0)),
+        baridimob: Math.round(Number(counts.baridimob || 0)),
+        usd: Math.round(Number(counts.usd || 0)),
+        banked: bankedAmount,
+      })
       await refresh()
       onClose()
     } catch (err) {
@@ -685,9 +702,29 @@ function ClosingBalanceModal({ isOpen, onClose, computedBalance, openingBalance,
             )}
           </div>
 
+          {/* Overnight banking: what you take out tonight, and the float that
+              stays in the drawer and becomes tomorrow's opening. */}
+          <div className="rounded-xl border border-gray-200 p-4 space-y-3">
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Banked overnight (optional)</span>
+              <span className="mt-0.5 block text-xs text-gray-400">Cash you remove tonight. Leave 0 to keep everything in the drawer.</span>
+              <input type="number" min="0" max={totalActual} step="1" value={banked}
+                onChange={(e) => setBanked(e.target.value)} placeholder="0"
+                className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-semibold text-right tabular-nums outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+            </label>
+            {bankedAmount > totalActual ? (
+              <p className="text-xs font-medium text-red-600">Banked amount can’t exceed the counted total.</p>
+            ) : (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Float carried to tomorrow</span>
+                <span className="font-semibold text-emerald-800">{carriedFloat.toLocaleString('fr-FR')} DA</span>
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-3 rounded-lg border border-gray-300 text-gray-600 font-medium hover:bg-gray-50 transition-colors">Cancel</button>
-            <button type="submit" disabled={submitting || totalActual < 0}
+            <button type="submit" disabled={submitting || totalActual < 0 || bankedAmount > totalActual}
               className="flex-1 py-3 rounded-lg bg-amber-700 text-white font-medium hover:bg-amber-600 transition-colors disabled:opacity-50">
               {submitting ? 'Saving...' : 'Close Register'}
             </button>
@@ -755,6 +792,39 @@ function CoffreForte() {
   const selectedDayCashOut = useMemo(() => (dayTransactions || []).filter((t) => t.transaction_type === 'cash_out').reduce((sum, t) => sum + Number(t.amount || 0), 0), [dayTransactions])
   const selectedDayExpected = Number(selectedDayData?.opening_balance || 0) + selectedDayCashIn - selectedDayCashOut
   const selectedDayVariance = Number(selectedDayData?.closing_balance || 0) - selectedDayExpected
+
+  // Per-rail reconciliation for a closed day: expected (full drawer, before any
+  // overnight banking) vs the counts actually recorded at closing.
+  const dayReconcile = useMemo(() => {
+    const rows = dayTransactions || []
+    const closing = rows.find((t) => t.transaction_type === 'closing')
+    if (!closing || closing.counted_cash == null) return null
+    const opening = Number(rows.find((t) => t.transaction_type === 'opening')?.amount || 0)
+    const sum = (type, method, excludeBanked = false) => rows
+      .filter((t) => t.transaction_type === type
+        && normalizeMethod(t.payment_method) === method
+        && !(excludeBanked && t.category === 'Banked overnight'))
+      .reduce((acc, t) => acc + (Number(t.amount) || 0), 0)
+    const expected = {
+      cash: opening + sum('cash_in', 'cash') - sum('cash_out', 'cash', true),
+      baridimob: sum('cash_in', 'baridimob') - sum('cash_out', 'baridimob'),
+      usd: sum('cash_in', 'usd') - sum('cash_out', 'usd'),
+    }
+    const counted = {
+      cash: Number(closing.counted_cash || 0),
+      baridimob: Number(closing.counted_baridimob || 0),
+      usd: Number(closing.counted_usd || 0),
+    }
+    return {
+      banked: Number(closing.banked_overnight || 0),
+      float: Number(closing.amount || 0),
+      rails: [
+        { key: 'cash', label: 'Cash drawer', expected: expected.cash, counted: counted.cash },
+        { key: 'baridimob', label: 'BaridiMob', expected: expected.baridimob, counted: counted.baridimob },
+        { key: 'usd', label: 'USDT (DZD equiv.)', expected: expected.usd, counted: counted.usd },
+      ].map((r) => ({ ...r, diff: r.counted - r.expected })),
+    }
+  }, [dayTransactions])
 
   useEffect(() => {
     const panel = searchParams.get('panel')
@@ -1305,6 +1375,38 @@ function CoffreForte() {
                   </div>
                 )}
               </div>
+
+              {dayReconcile && (
+                <div className="overflow-hidden rounded-xl border border-gray-200">
+                  <div className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-sm font-semibold text-gray-700">Closing reconciliation by rail</div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-gray-400">
+                        <th className="px-4 py-2 font-semibold">Rail</th>
+                        <th className="px-4 py-2 text-right font-semibold">Expected</th>
+                        <th className="px-4 py-2 text-right font-semibold">Counted</th>
+                        <th className="px-4 py-2 text-right font-semibold">Diff</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dayReconcile.rails.map((r) => (
+                        <tr key={r.key} className="border-t border-gray-50">
+                          <td className="px-4 py-2 text-gray-700">{r.label}</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-gray-500">{r.expected.toLocaleString('fr-FR')}</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-medium text-gray-900">{r.counted.toLocaleString('fr-FR')}</td>
+                          <td className={`px-4 py-2 text-right tabular-nums font-semibold ${r.diff === 0 ? 'text-gray-400' : r.diff > 0 ? 'text-emerald-700' : 'text-red-700'}`}>{r.diff === 0 ? '—' : `${r.diff > 0 ? '+' : ''}${r.diff.toLocaleString('fr-FR')}`}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {dayReconcile.banked > 0 && (
+                    <div className="flex items-center justify-between border-t border-gray-100 px-4 py-2.5 text-sm">
+                      <span className="inline-flex items-center gap-2 text-gray-600"><span className="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-2xs font-semibold text-indigo-700">Banked overnight</span>Carried float</span>
+                      <span className="tabular-nums text-gray-500">−{dayReconcile.banked.toLocaleString('fr-FR')} → <span className="font-semibold text-emerald-800">{dayReconcile.float.toLocaleString('fr-FR')} DA</span></span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 {dayTransactions?.filter(t => t.transaction_type === 'opening').map(tx => (

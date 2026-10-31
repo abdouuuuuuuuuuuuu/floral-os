@@ -542,10 +542,16 @@ export function useCashRegister() {
   }, [])
 
   // ─── Set closing balance ───────────────────────────────────────────────────────
-  const setClosingBalance = useCallback(async (amount) => {
-    const closingAmount = toIntegerAmount(amount)
-    if (Number.isNaN(closingAmount)) throw new Error('Invalid closing balance')
-    const { data, error } = await supabase.rpc('close_cash_register', { p_amount: closingAmount })
+  // Takes the three counted pockets and an optional overnight-banked amount.
+  // The closing balance saved is the float that stays in the drawer
+  // (counted total − banked); banked money is recorded as a cash-out.
+  const setClosingBalance = useCallback(async ({ cash = 0, baridimob = 0, usd = 0, banked = 0 } = {}) => {
+    const amounts = [cash, baridimob, usd, banked].map(toIntegerAmount)
+    if (amounts.some(Number.isNaN)) throw new Error('Invalid closing amounts')
+    const [p_cash, p_baridimob, p_usd, p_banked] = amounts
+    const { data, error } = await supabase.rpc('blossom_close_cash_register', {
+      p_cash, p_baridimob, p_usd, p_banked,
+    })
     if (error) throw error
     return data
   }, [])
