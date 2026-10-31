@@ -7,7 +7,7 @@
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --open",
     "build": "vite build",
     "assistant:eval": "node scripts/evaluate-assistant.mjs",
     "assistant:test": "node scripts/test-assistant-catalog.mjs",

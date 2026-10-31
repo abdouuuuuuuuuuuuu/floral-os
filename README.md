@@ -8,6 +8,14 @@ Blossom is a desktop point-of-sale and shop operations app for a flower shop. Th
 - A Supabase project with the Blossom schema, views, RPCs, Row Level Security policies, and Edge Functions deployed.
 - The public Supabase project URL and anon/publishable key for the renderer. Never put a service-role key in a `VITE_` variable or renderer file.
 
+## Run it in VS Code (quick start)
+
+1. Open the `Floral-pos` folder in VS Code (File → Open Folder).
+2. The first time only: run `npm install`, and create the `.env` file shown below.
+3. Press **Ctrl+Shift+B** (or Terminal → Run Build Task) to start **Blossom (npm run dev)**. The app opens in your browser at `http://localhost:5173`.
+
+If `npm` is blocked with "running scripts is disabled", run this once in the terminal: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
 ## Local development
 
 1. Install dependencies with `npm ci`.
