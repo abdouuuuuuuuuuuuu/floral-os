@@ -1,0 +1,59 @@
+services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:26.10.0-debian
+    command:
+      - osrm-routed
+      - --algorithm
+      - mld
+      - --ip
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - /data/algeria-latest.osrm
+    restart: unless-stopped
+    volumes:
+      - ./data:/data:ro
+    expose:
+      - "5000"
+    networks:
+      - routing
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      ROUTER_API_TOKEN: ${ROUTER_API_TOKEN:?Set ROUTER_API_TOKEN in ops/osrm/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    expose:
+      - "8080"
+    networks:
+      - routing
+      - tunnel
+    depends_on:
+      - osrm
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in ops/osrm/.env}
+    restart: unless-stopped
+    networks:
+      - tunnel
+    depends_on:
+      - caddy
+
+networks:
+  routing:
+    internal: true
+  tunnel: {}
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,21 @@
+{
+  // Press Ctrl+Shift+B (or Terminal → Run Build Task) to start Blossom.
+  // This runs `npm run dev`, which opens the app in your browser.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Blossom (npm run dev)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+[functions.create-team-member]
+verify_jwt = false
+
+[functions.reset-member-password]
+verify_jwt = false
+
+[functions.calculate-shipping-route]
+verify_jwt = false
+
+[functions.set-member-status]
+verify_jwt = false

@@ -1,0 +1,47 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Build output and packaged releases
+release/
+release-local/
+release-build/
+dist-backup-*/
+
+# Local secrets and Supabase CLI state
+.env
+.env.*
+!.env.example
+supabase/.temp/
+
+# Generated OSRM routing data (rebuild with ops/osrm/bootstrap-algeria.sh)
+ops/osrm/data/
+
+# Schema exports from the Supabase SQL editor
+schema_snapshot*.csv*
+
+# Stray local tooling, not part of the app
+claude-usage/

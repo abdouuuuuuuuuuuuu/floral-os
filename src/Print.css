@@ -1,0 +1,76 @@
+/* ============================================
+   PRINT STYLES — Receipt printing
+   Add this to your global CSS (index.css)
+   ============================================ */
+
+@media print {
+  /* Hide everything by default */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Show only the receipt */
+  #receipt,
+  #receipt * {
+    visibility: visible !important;
+  }
+
+  /* Position the receipt at the top */
+  #receipt {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 80mm !important;  /* Standard thermal receipt width */
+    max-width: 80mm !important;
+    margin: 0 !important;
+    padding: 8mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: white !important;
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+  }
+
+  /* Hide the sidebar, topbar, and all layout elements */
+  aside,
+  header,
+  nav,
+  .no-print,
+  .print\:hidden,
+  [class*="sidebar"],
+  [class*="topbar"],
+  [class*="DashboardLayout"] > *:not(main) {
+    display: none !important;
+  }
+
+  /* Reset main content for print */
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    margin-left: 0 !important;
+    padding-top: 0 !important;
+  }
+
+  /* Ensure receipt text is black for thermal printers */
+  #receipt h1,
+  #receipt h2,
+  #receipt h3,
+  #receipt p,
+  #receipt span,
+  #receipt div {
+    color: black !important;
+  }
+
+  /* Dashed borders become solid for better printer compatibility */
+  #receipt [class*="border-dashed"] {
+    border-style: solid !important;
+    border-color: #ccc !important;
+  }
+
+  /* Page settings */
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+}

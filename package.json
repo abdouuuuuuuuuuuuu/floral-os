@@ -1,0 +1,77 @@
+{
+  "name": "floral-os",
+  "private": true,
+  "version": "1.0.4",
+  "description": "Blossom POS - Flower Shop Management",
+  "author": "Zaki <abdou.noui311@gmail.com>",
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite --open",
+    "build": "vite build",
+    "assistant:eval": "node scripts/evaluate-assistant.mjs",
+    "assistant:test": "node scripts/test-assistant-catalog.mjs",
+    "preview": "vite preview",
+    "lint": "oxlint .",
+    "electron:dev": "npm run build && electron .",
+    "electron:pack": "npm run build && electron-builder",
+    "electron:build": "npm run build && electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.0",
+    "electron-updater": "^6.3.0",
+    "lottie-react": "2.4.1",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.0.0",
+    "recharts": "^3.9.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.4.0",
+    "autoprefixer": "^10.5.2",
+    "electron": "^33.2.0",
+    "electron-builder": "^26.0.12",
+    "oxlint": "^0.16.0",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^4.3.2",
+    "vite": "^6.3.0"
+  },
+  "build": {
+    "appId": "com.blossom.pos",
+    "productName": "Blossom POS",
+    "asar": false,
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release",
+      "buildResources": "public"
+    },
+    "files": [
+      "dist",
+      "electron",
+      "public"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "abdouuuuuuuuuuuuu",
+      "repo": "floral-os",
+      "releaseType": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "createStartMenuShortcut": true
+    }
+  }
+}
