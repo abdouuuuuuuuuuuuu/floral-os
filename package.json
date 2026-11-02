@@ -1,7 +1,7 @@
 {
   "name": "floral-os",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Blossom POS - Flower Shop Management",
   "author": "Zaki <abdou.noui311@gmail.com>",
   "type": "module",
@@ -22,6 +22,7 @@
     "electron-updater": "^6.3.0",
     "lottie-react": "2.4.1",
     "lucide-react": "^0.468.0",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0",

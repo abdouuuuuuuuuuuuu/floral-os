@@ -30,6 +30,7 @@ import OrderDetail from './pages/OrderDetail'
 import Forbidden from './pages/Forbidden'
 import BlossomAssistant from './components/layout/BlossomAssistant'
 import OfflineSyncManager from './components/layout/OfflineSyncManager'
+import OrderQrScanner from './components/layout/OrderQrScanner'
 import ToastContainer from './components/ui/ToastContainer'
 import ErrorBoundary from './components/common/ErrorBoundary'
 
@@ -65,6 +66,7 @@ function AppRoutes() {
     <ErrorBoundary resetKey={location.pathname}>
       <BlossomAssistant />
       <OfflineSyncManager />
+      <OrderQrScanner />
       <ToastContainer />
       <KeepAliveRoutes>
         <Route path="/" element={<Navigate to="/auth/login" replace />} />

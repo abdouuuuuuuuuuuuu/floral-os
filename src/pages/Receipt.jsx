@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useNotification } from '../context/NotificationContext'
 import { useShopName } from '../hooks/useShopName'
 import { printThermalReceipt } from '../utils/printThermal'
+import { orderQrHtml } from '../lib/orderQr'
 import { formatBusinessDate, formatBusinessDateTime } from '../lib/businessDate.js'
 import { shipByDate, transitDaysForRoadDistance } from '../lib/shippingPlan.js'
 import OrderSuccessAnimation from '../components/common/OrderSuccessAnimation'
@@ -168,6 +169,7 @@ function Receipt() {
       </div>
       <div class="divider"></div>
       <div style="margin-bottom:8px;">${financialRows}</div>
+      ${orderQrHtml(order.id)}
       <div class="footer">Blossom · Order #${order.order_number}</div>
     `
 

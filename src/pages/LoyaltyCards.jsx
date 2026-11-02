@@ -1,13 +1,29 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Download, Loader2, Printer, QrCode, RefreshCw, Sparkles } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import { useNotification } from '../context/NotificationContext'
-import { useShopName } from '../hooks/useShopName'
+import { usePageActive } from '../context/PageActiveContext'
 import { supabase } from '../lib/supabase'
-import { qrDataUrl } from '../lib/qr'
+import { LoyaltyCardFront, LoyaltyCardBack } from '../components/LoyaltyCardFace'
 import { LOYALTY_EARN_DA_PER_POINT, LOYALTY_REDEMPTION_POINTS, LOYALTY_REDEMPTION_DA } from '../lib/loyalty'
 
 const DEFAULT_COUNT = 24
+const CARDS_PER_SHEET = 10
+
+// A4 sheets of 10 cards: a page of fronts, then a page of backs. Each row of
+// backs is reversed so the two sides line up when printed double-sided.
+function printSheets(cards) {
+  const sheets = []
+  for (let i = 0; i < cards.length; i += CARDS_PER_SHEET) sheets.push(cards.slice(i, i + CARDS_PER_SHEET))
+  return sheets
+}
+
+function backOrder(sheet) {
+  const slots = []
+  for (let i = 0; i < sheet.length; i += 2) slots.push(sheet[i + 1] ?? null, sheet[i])
+  return slots
+}
 
 function batchOrdinal(prefix) {
   return [...prefix].reduce((value, letter) => value * 26 + letter.charCodeAt(0) - 64, 0)
@@ -25,7 +41,7 @@ function batchPrefix(ordinal) {
 }
 
 export default function LoyaltyCards() {
-  const shopName = useShopName()
+  const pageActive = usePageActive()
   const { addNotification } = useNotification()
   const [cards, setCards] = useState([])
   const [count, setCount] = useState(DEFAULT_COUNT)
@@ -114,9 +130,21 @@ export default function LoyaltyCards() {
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-sage-dark bg-white"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-sage-dark px-5 py-4"><div><h2 className="font-semibold text-gray-900">Card batches</h2><p className="mt-0.5 text-xs text-gray-500">Batch letter is part of each card ID and remains consistent across runs.</p></div><div className="flex items-center gap-2"><select aria-label="Select card batch" value={batch?.id || ''} onChange={(event) => setSelectedBatch(event.target.value)} className="rounded-lg border border-sage-dark bg-white px-3 py-2 text-sm" disabled={!batches.length}><option value="" disabled>Select batch</option>{batches.map((item) => <option key={item.id} value={item.id}>Batch {item.id} · {item.cards.length} cards</option>)}</select><button type="button" onClick={loadCards} disabled={loading} aria-label="Refresh card batches" title="Refresh card batches" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sage-dark text-gray-600 hover:bg-sage disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button><button type="button" onClick={downloadCsv} disabled={!batch} className="inline-flex items-center gap-2 rounded-lg border border-sage-dark px-3 py-2 text-sm font-medium text-gray-700 disabled:opacity-40"><Download size={15} /> CSV</button><button type="button" onClick={() => window.print()} disabled={!batch} className="inline-flex items-center gap-2 rounded-lg bg-fuchsia-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"><Printer size={15} /> Print cards</button></div></div>
-        {loading ? <div className="p-12 text-center text-sm text-gray-500"><Loader2 size={20} className="mx-auto mb-2 animate-spin" />Loading cards…</div> : !cards.length ? <div className="p-12 text-center"><QrCode size={30} className="mx-auto text-gray-300" /><p className="mt-3 font-medium text-gray-700">No cards yet</p><p className="mt-1 text-sm text-gray-500">Generate a batch to create unassigned cards for your customers.</p></div> : <div className="p-5"><div className="mb-4 text-xs text-gray-500">Batch {batch?.id} · {batch?.cards.length} cards · IDs begin with {batch?.id}-</div><div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">{batch?.cards.map((card) => <article key={card.code} className="loyalty-print-card relative flex min-h-48 items-center gap-4 overflow-hidden rounded-2xl border border-fuchsia-100 bg-[#fffafd] p-4"><div className="relative min-w-0 flex-1"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-fuchsia-700">{shopName}</p><h3 className="mt-1 font-display text-xl leading-tight text-primary">Blossom<br/>Petals</h3><p className="mt-3 text-[10px] text-gray-500">Scan in store to collect rewards</p><p className="mt-1 font-mono text-[10px] font-bold tracking-wider text-gray-700">{card.code}</p><span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${card.customer_id ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-700'}`}>{card.customer_id ? 'Assigned' : 'Unassigned'}</span></div><img className="relative h-28 w-28 shrink-0 rounded-lg bg-white p-1" src={qrDataUrl(card.code)} alt={`QR code for ${card.code}`} /></article>)}</div></div>}
+        {loading ? <div className="p-12 text-center text-sm text-gray-500"><Loader2 size={20} className="mx-auto mb-2 animate-spin" />Loading cards…</div> : !cards.length ? <div className="p-12 text-center"><QrCode size={30} className="mx-auto text-gray-300" /><p className="mt-3 font-medium text-gray-700">No cards yet</p><p className="mt-1 text-sm text-gray-500">Generate a batch to create unassigned cards for your customers.</p></div> : <div className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-4"><p className="text-xs text-gray-500">Batch {batch?.id} · {batch?.cards.length} cards · IDs begin with {batch?.id}-. Prints 10 cards per A4 sheet; use double-sided printing, flip on long edge.</p><div className="flex items-center gap-2"><span className="text-xs text-gray-500">Back of every card</span><LoyaltyCardBack className="w-32 rounded border border-sage-dark" /></div></div><div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 ">{batch?.cards.map((card) => <article key={card.code} className="overflow-hidden rounded-xl border border-sage-dark bg-white"><LoyaltyCardFront code={card.code} /><div className="flex items-center justify-between gap-2 border-t border-sage-dark px-3 py-2"><span className="truncate text-xs text-gray-600">{card.customers?.full_name || 'No customer yet'}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${card.customer_id ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-700'}`}>{card.customer_id ? 'Assigned' : 'Unassigned'}</span></div></article>)}</div></div>}
       </section>
     </div>
-    <style>{`@media print { @page { size: A4; margin: 10mm; } body * { visibility: hidden !important; } .loyalty-print-card, .loyalty-print-card * { visibility: visible !important; } .loyalty-print-card { break-inside: avoid; box-shadow: none !important; border-color: #e9cfe0 !important; } }`}</style>
+    {pageActive && batch && createPortal(<div className="loyalty-print-root">{printSheets(batch.cards).map((sheet, index) => <div key={index}>
+      <div className="loyalty-print-sheet">{sheet.map((card) => <LoyaltyCardFront key={card.code} code={card.code} className="loyalty-print-face" />)}</div>
+      <div className="loyalty-print-sheet">{backOrder(sheet).map((card, slot) => card ? <LoyaltyCardBack key={card.code} className="loyalty-print-face" /> : <div key={`empty-${slot}`} className="loyalty-print-face" />)}</div>
+    </div>)}</div>, document.body)}
+    {pageActive && <style>{`.loyalty-print-root { display: none; }
+      @media print {
+        @page { size: A4; margin: 0; }
+        html, body { background: #fff !important; }
+        body > *:not(.loyalty-print-root) { display: none !important; }
+        .loyalty-print-root { display: block; }
+        .loyalty-print-sheet { display: grid; grid-template-columns: repeat(2, 88.9mm); grid-auto-rows: 50.8mm; justify-content: center; align-content: start; gap: 2mm; padding-top: 12mm; break-after: page; }
+        .loyalty-print-face { width: 88.9mm; height: 50.8mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }`}</style>}
   </DashboardLayout>
 }

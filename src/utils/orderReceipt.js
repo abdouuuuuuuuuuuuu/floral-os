@@ -1,4 +1,5 @@
 import { printThermalReceipt } from './printThermal'
+import { orderQrHtml } from '../lib/orderQr'
 
 const escapeHtml = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -65,6 +66,7 @@ export async function printOrderReceipt(order, shopName = 'Blossom') {
     ${paidAmount > 0 ? `<div class="row"><span>Paid</span><span>${formatAmount(paidAmount)} DA</span></div>` : ''}
     ${dueAmount > 0 ? `<div class="row"><span>Due</span><span>${formatAmount(dueAmount)} DA</span></div>` : ''}
     <div class="total-row"><span>TOTAL</span><span>${formatAmount(order.total_amount)} DA</span></div>
+    ${orderQrHtml(order.id)}
     <div class="footer">Thank you for your order!<br>${escapeHtml(shopName)} — Blossom Workspace</div>
   `
 
