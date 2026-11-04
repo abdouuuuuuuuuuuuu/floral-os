@@ -59,7 +59,7 @@
     "publish": {
       "provider": "github",
       "owner": "abdouuuuuuuuuuuuu",
-      "repo": "floral-os-releases",
+      "repo": "floral-os",
       "releaseType": "release"
     },
     "win": {
