@@ -352,6 +352,8 @@ function Checkout() {
         ...orderPayload,
         paymentMethod,
         loyaltyPointsToRedeem: paymentData.loyaltyPointsToRedeem,
+        loyaltyCardCode: paymentData.loyaltyCardCode,
+        loyaltyOverrideReason: paymentData.loyaltyOverrideReason,
         paymentStatus: paymentData.paymentStatus,
         amountPaid: paymentData.amountPaid,
         amountDue: paymentData.amountDue,

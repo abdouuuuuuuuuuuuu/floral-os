@@ -1,6 +1,8 @@
 // electron/main.js
 
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { writeFile } from 'node:fs/promises'
+import { pickReceiptPrinter, printReceipt } from './receiptPrint.js'
 import { execFile } from 'node:child_process'
 import pkg from 'electron-updater'
 import path from 'path'
@@ -41,6 +43,40 @@ const openExternalSafely = (url) => {
     /* ignore malformed links */
   }
 }
+
+// Prints a receipt directly on the receipt printer, as one page of the right length.
+ipcMain.handle('blossom-receipt:print', async (event, request) => {
+  const appWindow = trustedAppWindow(event)
+  if (!appWindow) throw new Error('Untrusted print request.')
+  if (typeof request?.html !== 'string' || request.html.length > 5_000_000) throw new Error('Invalid receipt.')
+  const printer = pickReceiptPrinter(await appWindow.webContents.getPrintersAsync())
+  if (!printer) return { printed: false, reason: 'No receipt printer found.' }
+  return printReceipt(request.html, printer, app.getPath('temp'))
+})
+
+// Saves the loyalty card sheets the page has prepared as an A4 PDF.
+ipcMain.handle('blossom-loyalty-cards:export-pdf', async (event, request) => {
+  const appWindow = trustedAppWindow(event)
+  if (!appWindow) throw new Error('Untrusted PDF export request.')
+
+  const label = /^[A-Za-z0-9-]{1,20}$/.test(String(request?.label)) ? request.label : 'cards'
+  const { canceled, filePath } = await dialog.showSaveDialog(appWindow, {
+    title: 'Save loyalty cards as PDF',
+    defaultPath: path.join(app.getPath('documents'), `blossom-loyalty-${label}.pdf`),
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  })
+  if (canceled || !filePath) return { saved: false }
+
+  const pdf = await appWindow.webContents.printToPDF({
+    pageSize: 'A4',
+    preferCSSPageSize: true,
+    printBackground: true,
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+  })
+  await writeFile(filePath, pdf)
+  shell.showItemInFolder(filePath)
+  return { saved: true, filePath }
+})
 
 // Send the ESC/POS drawer pulse as a RAW Windows spooler job. This avoids the
 // browser print dialog and does not print/feed a receipt. The Windows default

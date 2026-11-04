@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useId } from 'react'
 import { Search, User, UserPlus, X, Loader2, QrCode } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { usePageActive } from '../context/PageActiveContext'
+import { parseCardCode } from '../lib/scanDecode'
 
 export function CustomerSearch({ selectedCustomer, onSelect, onClear, placeholder = "Search customer...", query: controlledQuery, onQueryChange, showCardScanner = true }) {
   const id = useId()
@@ -22,6 +24,9 @@ export function CustomerSearch({ selectedCustomer, onSelect, onClear, placeholde
   const [cardMessage, setCardMessage] = useState('')
   const [cardLoading, setCardLoading] = useState(false)
   const [pendingCard, setPendingCard] = useState(null)
+  const [confirmCard, setConfirmCard] = useState(null)
+  const pageActive = usePageActive()
+  const handleCardScanRef = useRef(null)
   const inputRef = useRef(null)
   const selectedCardRef = useRef(null)
   const focusSelectedRef = useRef(false)
@@ -82,13 +87,47 @@ export function CustomerSearch({ selectedCustomer, onSelect, onClear, placeholde
     }
   }, [query, selectedCustomer, searchAttempt])
 
+  useEffect(() => {
+    if (!showCardScanner || !pageActive) return undefined
+    const onScan = (event) => {
+      event.preventDefault()
+      handleCardScanRef.current?.(null, event.detail.code)
+    }
+    window.addEventListener('blossom:card-scanned', onScan)
+    return () => window.removeEventListener('blossom:card-scanned', onScan)
+  }, [showCardScanner, pageActive])
+
+  // Every link goes through the same recorded server step.
+  const linkCard = async (code, customer) => {
+    const { error: assignError } = await supabase.rpc('blossom_assign_loyalty_card', {
+      p_code: code, p_customer_id: customer.customer_id,
+    })
+    if (assignError) throw assignError
+    window.dispatchEvent(new CustomEvent('blossom:loyalty-card-updated', { detail: { code, customer } }))
+    setCardMessage(`Card ${code} linked to ${customer.full_name}.`)
+  }
+
+  const confirmLink = async () => {
+    if (!confirmCard || !selectedCustomer || cardLoading) return
+    setCardLoading(true)
+    try {
+      await linkCard(confirmCard, selectedCustomer)
+    } catch (err) {
+      console.error('Could not link card:', err)
+      setCardMessage('Could not link this card. It may already be linked, or this customer already has one.')
+    } finally {
+      setConfirmCard(null)
+      setCardLoading(false)
+    }
+  }
+
   const handleSelect = async (customer) => {
     if (pendingCard) {
-      const { data, error: assignError } = await supabase.from('customer_loyalty_cards')
-        .update({ customer_id: customer.customer_id, assigned_at: new Date().toISOString() })
-        .eq('code', pendingCard.code).is('customer_id', null).select('code').maybeSingle()
-      if (assignError || !data) {
-        setCardMessage(assignError?.message || 'That card was already assigned. Scan it again to load its customer.')
+      try {
+        await linkCard(pendingCard.code, customer)
+      } catch (err) {
+        console.error('Could not link card:', err)
+        setCardMessage('Could not link this card. It may already be linked, or this customer already has one.')
         setPendingCard(null)
         return
       }
@@ -109,12 +148,13 @@ export function CustomerSearch({ selectedCustomer, onSelect, onClear, placeholde
     setSearchError('')
   }
 
-  const handleCardScan = async (event) => {
+  const handleCardScan = async (event, scannedCode) => {
     event?.preventDefault?.()
-    const code = cardCode.trim().toUpperCase()
+    const code = parseCardCode(scannedCode ?? cardCode)
     setCardMessage('')
-    if (!/^[A-Z]{1,3}-[A-F0-9]{12}$/.test(code)) {
-      setCardMessage('That does not look like a Blossom loyalty card code.')
+    setConfirmCard(null)
+    if (!code) {
+      setCardMessage('That is not a Blossom card ID. Scan the card again.')
       return
     }
     setCardLoading(true)
@@ -123,29 +163,25 @@ export function CustomerSearch({ selectedCustomer, onSelect, onClear, placeholde
         .select('code, customer_id, customers(customer_id, full_name, phone)')
         .eq('code', code).maybeSingle()
       if (cardError) throw cardError
-      if (!card) { setCardMessage('Card not found. Check that the card batch migration is installed.'); return }
+      if (!card) { setCardMessage(`Card ${code} was not found.`); return }
       setCardCode('')
       if (card.customer_id && card.customers) {
         setPendingCard(null)
         setCardMessage(`Card recognized · ${card.customers.full_name}`)
         onSelect(card.customers)
       } else if (selectedCustomer) {
-        const { data, error: assignError } = await supabase.from('customer_loyalty_cards')
-          .update({ customer_id: selectedCustomer.customer_id, assigned_at: new Date().toISOString() })
-          .eq('code', code).is('customer_id', null).select('code').maybeSingle()
-        if (assignError || !data) throw assignError || new Error('This card has already been assigned.')
-        window.dispatchEvent(new CustomEvent('blossom:loyalty-card-updated', {
-          detail: { code, customer: selectedCustomer },
-        }))
-        setCardMessage(`Card ${code} linked to ${selectedCustomer.full_name}.`)
+        setConfirmCard(code)
       } else {
         setPendingCard(card)
-        setCardMessage(`Unassigned card ${code}. Search for and select the customer to link it.`)
+        setCardMessage(`Card ${code} is blank. Select the customer to link it.`)
       }
     } catch (err) {
-      setCardMessage(err?.message || 'Could not look up this loyalty card.')
+      console.error('Card lookup failed:', err)
+      setCardMessage('Could not look up this card. Check the connection and try again.')
     } finally { setCardLoading(false) }
   }
+
+  handleCardScanRef.current = handleCardScan
 
   const cardScanner = <div className="mb-2">
     <div className="flex gap-2">
@@ -153,6 +189,7 @@ export function CustomerSearch({ selectedCustomer, onSelect, onClear, placeholde
       <button type="button" onClick={handleCardScan} disabled={cardLoading || !cardCode.trim()} className="rounded-xl border border-fuchsia-200 bg-white px-3 text-xs font-semibold text-fuchsia-800 disabled:opacity-50">{cardLoading ? <Loader2 size={16} className="animate-spin" /> : 'Scan'}</button>
     </div>
     {cardMessage && <p role="status" className="mt-1.5 text-xs text-fuchsia-800">{cardMessage}</p>}
+    {confirmCard && selectedCustomer && <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-fuchsia-50 p-2.5 text-xs text-fuchsia-900"><span>Link card <b>{confirmCard}</b> to <b>{selectedCustomer.full_name}</b>?</span><span className="flex shrink-0 gap-2"><button type="button" onClick={confirmLink} disabled={cardLoading} className="rounded-lg bg-fuchsia-700 px-3 py-1.5 font-semibold text-white disabled:opacity-50">Link card</button><button type="button" onClick={() => setConfirmCard(null)} className="px-1 font-semibold text-gray-600">Cancel</button></span></div>}
   </div>
 
   const clearSelectedCustomer = () => {

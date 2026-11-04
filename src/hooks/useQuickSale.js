@@ -133,6 +133,8 @@ export function useQuickSale() {
           total: snapshot.total,
           priceAdjustment: snapshot.priceAdjustment,
           loyaltyPointsToRedeem,
+          loyaltyCardCode: paymentData?.loyaltyCardCode ?? null,
+          loyaltyOverrideReason: paymentData?.loyaltyOverrideReason ?? null,
           paymentStatus: paymentData?.paymentStatus || 'paid',
           amountPaid: paymentData?.amountPaid ?? snapshot.total,
           amountDue: paymentData?.amountDue ?? 0,

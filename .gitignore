@@ -45,3 +45,6 @@ schema_snapshot*.csv*
 
 # Stray local tooling, not part of the app
 claude-usage/
+
+# Local data backups
+backups/

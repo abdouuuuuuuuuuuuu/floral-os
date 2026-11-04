@@ -54,6 +54,9 @@ export function useProductsAdmin() {
         category: product.category,
         description: product.description,
         image_url: product.image_url,
+        bouquet_lilies: product.bouquet_lilies ?? 0,
+        bouquet_roses: product.bouquet_roses ?? 0,
+        bouquet_other_flowers: product.bouquet_other_flowers ?? 0,
         is_active: true,
         product_status: product.stock_level > 0 ? 'in_stock' : 'out_of_stock',
       })
@@ -106,6 +109,9 @@ export function useProductsAdmin() {
       ...(updates.category !== undefined && { category: updates.category }),
       ...(updates.description !== undefined && { description: updates.description }),
       ...(updates.image_url !== undefined && { image_url: updates.image_url }),
+      ...(updates.bouquet_lilies !== undefined && { bouquet_lilies: updates.bouquet_lilies }),
+      ...(updates.bouquet_roses !== undefined && { bouquet_roses: updates.bouquet_roses }),
+      ...(updates.bouquet_other_flowers !== undefined && { bouquet_other_flowers: updates.bouquet_other_flowers }),
       ...(updates.is_active !== undefined && { is_active: updates.is_active }),
       ...(updates.is_starred !== undefined && { is_starred: updates.is_starred }),
     }

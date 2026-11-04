@@ -60,14 +60,33 @@ export async function enqueueSale(entry) {
   return record
 }
 
-/** Every queued sale, oldest first. */
-export async function listQueuedSales() {
+async function listAllSales() {
   const rows = await tx('readonly', (store) => new Promise((resolve, reject) => {
     const req = store.getAll()
     req.onsuccess = () => resolve(req.result || [])
     req.onerror = () => reject(req.error)
   }))
   return rows.sort((a, b) => String(a.queuedAt).localeCompare(String(b.queuedAt)))
+}
+
+/** Every sale still waiting to be sent, oldest first. */
+export async function listQueuedSales() {
+  return (await listAllSales()).filter((sale) => sale.status !== 'failed')
+}
+
+/** Sales the server refused. The customer has already paid, so they wait here for a person. */
+export async function listFailedSales() {
+  return (await listAllSales()).filter((sale) => sale.status === 'failed')
+}
+
+export async function markSaleFailed(requestId, failure) {
+  await tx('readwrite', (store) => {
+    const req = store.get(requestId)
+    req.onsuccess = () => {
+      if (req.result) store.put({ ...req.result, status: 'failed', failure, failedAt: new Date().toISOString() })
+    }
+  })
+  notifyChange()
 }
 
 export async function removeQueuedSale(requestId) {

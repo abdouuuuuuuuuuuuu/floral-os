@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Banknote, ArrowRight, Loader2, Sparkles } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
+import { parseCardCode } from '../lib/scanDecode'
 import { LOYALTY_REDEMPTION_POINTS, loyaltyDiscountForPoints, maxRedeemablePoints as getMaxRedeemablePoints, normalizeRedeemedPoints } from '../lib/loyalty'
 
 export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exchangeRate = 0, customer = null, onConfirm, onCancel, isSubmitting }) {
@@ -10,11 +12,25 @@ export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exc
   const [loyaltyBalance, setLoyaltyBalance] = useState(0)
   const [loyaltyLoaded, setLoyaltyLoaded] = useState(false)
   const [pointsToRedeem, setPointsToRedeem] = useState(0)
+  const { role } = useAuth()
+  const canSkipCard = role === 'owner' || role === 'manager'
+  const [loyaltyError, setLoyaltyError] = useState(false)
+  const [loyaltyAttempt, setLoyaltyAttempt] = useState(0)
+  // Spending petals needs the customer's card, or an owner or manager and a reason.
+  const [checkingCard, setCheckingCard] = useState(false)
+  const [cardInput, setCardInput] = useState('')
+  const [noCardReason, setNoCardReason] = useState('')
+  const [cardMessage, setCardMessage] = useState('')
+  const [cardBusy, setCardBusy] = useState(false)
+  const [rewardProof, setRewardProof] = useState(null)
 
   useEffect(() => {
     let active = true
     setLoyaltyBalance(0)
+    setLoyaltyError(false)
     setPointsToRedeem(0)
+    setCheckingCard(false)
+    setRewardProof(null)
     setLoyaltyLoaded(!customer?.customer_id)
     if (!customer?.customer_id) return undefined
 
@@ -23,17 +39,63 @@ export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exc
       .eq('customer_id', customer.customer_id)
       .then(({ data, error }) => {
         if (!active) return
-        if (!error) setLoyaltyBalance((data || []).reduce((sum, row) => sum + Number(row.points_delta || 0), 0))
+        if (error) setLoyaltyError(true)
+        else setLoyaltyBalance((data || []).reduce((sum, row) => sum + Number(row.points_delta || 0), 0))
         setLoyaltyLoaded(true)
       })
     return () => { active = false }
-  }, [customer?.customer_id])
+  }, [customer?.customer_id, loyaltyAttempt])
 
   const orderTotal = Math.max(0, total)
   const maxRedeemablePoints = getMaxRedeemablePoints(loyaltyBalance, orderTotal)
   const appliedPoints = Math.min(normalizeRedeemedPoints(pointsToRedeem), maxRedeemablePoints)
   const loyaltyDiscount = loyaltyDiscountForPoints(appliedPoints)
   const numericTotal = Math.max(0, orderTotal - loyaltyDiscount)
+  const applyReward = useCallback((proof) => {
+    setRewardProof(proof)
+    setPointsToRedeem(maxRedeemablePoints)
+    setCheckingCard(false)
+    setCardInput('')
+    setNoCardReason('')
+    setCardMessage('')
+    setAmountPaid('')
+    setAmountError('')
+  }, [maxRedeemablePoints])
+
+  const removeReward = () => {
+    setRewardProof(null)
+    setPointsToRedeem(0)
+    setAmountPaid('')
+    setAmountError('')
+  }
+
+  const checkCard = useCallback(async (rawCode) => {
+    const code = parseCardCode(rawCode)
+    if (!code) { setCardMessage('That is not a Blossom card ID. Scan the card again.'); return }
+    setCardBusy(true)
+    setCardMessage('')
+    const { data, error } = await supabase.from('customer_loyalty_cards')
+      .select('customer_id').eq('code', code).maybeSingle()
+    setCardBusy(false)
+    if (error) setCardMessage('Could not check this card. Check the connection and try again.')
+    else if (data?.customer_id !== customer?.customer_id) setCardMessage(`Card ${code} does not belong to ${customer?.full_name || 'this customer'}.`)
+    else applyReward({ cardCode: code })
+  }, [applyReward, customer?.customer_id, customer?.full_name])
+
+  // Runs first and stops the event, so the customer search behind this window
+  // can't switch to another customer because of this scan.
+  useEffect(() => {
+    if (!checkingCard) return undefined
+    const onScan = (event) => {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      setCardInput(event.detail.code)
+      void checkCard(event.detail.code)
+    }
+    window.addEventListener('blossom:card-scanned', onScan, true)
+    return () => window.removeEventListener('blossom:card-scanned', onScan, true)
+  }, [checkingCard, checkCard])
+
   const numericDeliveryFee = Math.max(0, Number(deliveryFee) || 0)
   const customerChargeTotal = numericTotal + numericDeliveryFee
   const parsedReceived = Number(amountPaid)
@@ -94,10 +156,12 @@ export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exc
       paymentStatus: isPaid ? 'paid' : isPartial ? 'partial' : 'unpaid',
       amountDue: Math.round(remaining),
       loyaltyPointsToRedeem: appliedPoints,
+      loyaltyCardCode: appliedPoints > 0 ? rewardProof?.cardCode ?? null : null,
+      loyaltyOverrideReason: appliedPoints > 0 ? rewardProof?.reason ?? null : null,
       notes: [fxNote, notes.trim()].filter(Boolean).join(' · '),
       change: Math.round(change),
     })
-  }, [onConfirm, isSubmitting, isUsd, rateIsValid, amountError, numericReceived, rate, receivedInDzd, numericPaid, isPaid, isPartial, remaining, notes, change, appliedPoints])
+  }, [onConfirm, isSubmitting, isUsd, rateIsValid, amountError, numericReceived, rate, receivedInDzd, numericPaid, isPaid, isPartial, remaining, notes, change, appliedPoints, rewardProof])
 
   // Cursor lands in the amount field. This is a modal with one job and
   // it opened with focus nowhere, so the first keystroke went to the
@@ -183,34 +247,82 @@ export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exc
           </div>}
 
           {customer?.customer_id && (
-            <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/70 p-3">
+            <div className={`rounded-xl border p-3 ${maxRedeemablePoints >= LOYALTY_REDEMPTION_POINTS ? 'border-fuchsia-400 bg-fuchsia-50' : 'border-fuchsia-100 bg-fuchsia-50/70'}`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-fuchsia-700"><Sparkles size={17} /></span>
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-fuchsia-900">Customer points</p>
-                    <p className="text-2xs text-fuchsia-700">{loyaltyLoaded ? `${Math.max(0, loyaltyBalance).toLocaleString('fr-FR')} points available` : 'Loading points…'}</p>
-                    {loyaltyLoaded && maxRedeemablePoints > 0 && <p className="text-2xs font-semibold text-fuchsia-800">For this order: {maxRedeemablePoints.toLocaleString('fr-FR')} points = {loyaltyDiscountForPoints(maxRedeemablePoints).toLocaleString('fr-FR')} DA off</p>}
+                    <p className="text-sm font-bold text-fuchsia-900">{!loyaltyLoaded ? 'Loading petals…' : loyaltyError ? 'Petals could not be loaded' : maxRedeemablePoints >= LOYALTY_REDEMPTION_POINTS ? `Reward ready: ${loyaltyDiscountForPoints(maxRedeemablePoints).toLocaleString('fr-FR')} DA off` : `${Math.max(0, loyaltyBalance).toLocaleString('fr-FR')} petals`}</p>
+                    {loyaltyError && <button type="button" onClick={() => setLoyaltyAttempt((attempt) => attempt + 1)} className="text-2xs font-semibold text-fuchsia-800 underline underline-offset-2">Try again</button>}
+                    {loyaltyLoaded && !loyaltyError && <p className="text-2xs text-fuchsia-700">{maxRedeemablePoints >= LOYALTY_REDEMPTION_POINTS ? `Customer has ${Math.max(0, loyaltyBalance).toLocaleString('fr-FR')} petals. Offer it before payment.` : Math.max(0, loyaltyBalance) >= LOYALTY_REDEMPTION_POINTS ? 'This order is too small for a reward.' : `${LOYALTY_REDEMPTION_POINTS - (Math.max(0, loyaltyBalance) % LOYALTY_REDEMPTION_POINTS)} more petals to the next reward`}</p>}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  disabled={!loyaltyLoaded || maxRedeemablePoints < LOYALTY_REDEMPTION_POINTS || isSubmitting}
-                  onClick={() => { setPointsToRedeem((current) => current > 0 ? 0 : maxRedeemablePoints); setAmountPaid(''); setAmountError('') }}
-                  className="shrink-0 rounded-lg border border-fuchsia-200 bg-white px-3 py-2 text-xs font-semibold text-fuchsia-800 transition hover:bg-fuchsia-100 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {appliedPoints ? 'Remove reward' : 'Use reward'}
-                </button>
+                {maxRedeemablePoints >= LOYALTY_REDEMPTION_POINTS && (
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      if (appliedPoints) removeReward()
+                      else { setCheckingCard((current) => !current); setCardMessage('') }
+                    }}
+                    className={`min-h-10 shrink-0 rounded-lg px-4 text-sm font-semibold transition disabled:opacity-50 ${appliedPoints ? 'border border-fuchsia-300 bg-white text-fuchsia-800' : 'bg-fuchsia-700 text-white hover:bg-fuchsia-800'}`}
+                  >
+                    {appliedPoints ? 'Remove reward' : checkingCard ? 'Back' : 'Use reward'}
+                  </button>
+                )}
               </div>
-              {appliedPoints > 0 ? (
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <label className="text-2xs font-semibold text-fuchsia-800">Points to use
-                    <input type="number" min={LOYALTY_REDEMPTION_POINTS} step={LOYALTY_REDEMPTION_POINTS} max={maxRedeemablePoints} value={appliedPoints} onChange={(event) => { setPointsToRedeem(Math.min(maxRedeemablePoints, normalizeRedeemedPoints(event.target.value))); setAmountPaid(''); setAmountError('') }} className="mt-1 w-full rounded-lg border border-fuchsia-200 bg-white px-2.5 py-2 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-fuchsia-200" />
-                  </label>
-                  <div className="self-end rounded-lg bg-white px-3 py-2 text-right">
-                    <p className="text-2xs text-gray-500">Reward discount</p>
-                    <p className="text-sm font-bold text-emerald-700">−{loyaltyDiscount.toLocaleString('fr-FR')} DA</p>
+              {checkingCard && !appliedPoints && (
+                <div className="mt-3 space-y-3 rounded-lg bg-white p-3">
+                  <div>
+                    <label htmlFor="reward-card" className="text-xs font-semibold text-gray-700">Scan the customer's card</label>
+                    <div className="mt-1 flex gap-2">
+                      <input
+                        id="reward-card"
+                        autoFocus
+                        value={cardInput}
+                        onChange={(event) => setCardInput(event.target.value)}
+                        onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void checkCard(cardInput) } }}
+                        placeholder="Scan or type the card ID"
+                        autoComplete="off"
+                        className="min-w-0 flex-1 rounded-lg border border-fuchsia-200 px-3 py-2 font-mono text-sm outline-none focus:ring-2 focus:ring-fuchsia-200"
+                      />
+                      <button type="button" disabled={cardBusy || !cardInput.trim()} onClick={() => checkCard(cardInput)} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-fuchsia-700 px-3 text-sm font-semibold text-white disabled:opacity-50">
+                        {cardBusy && <Loader2 size={14} className="animate-spin" />} Check
+                      </button>
+                    </div>
                   </div>
+                  {canSkipCard ? (
+                    <div>
+                      <label htmlFor="reward-reason" className="text-xs font-semibold text-gray-700">No card? Give a reason</label>
+                      <div className="mt-1 flex gap-2">
+                        <input
+                          id="reward-reason"
+                          value={noCardReason}
+                          onChange={(event) => setNoCardReason(event.target.value)}
+                          placeholder="Shown in the activity log"
+                          maxLength={500}
+                          className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-fuchsia-200"
+                        />
+                        <button type="button" disabled={!noCardReason.trim()} onClick={() => applyReward({ reason: noCardReason.trim() })} className="min-h-10 rounded-lg border border-fuchsia-300 px-3 text-sm font-semibold text-fuchsia-800 disabled:opacity-50">Use without card</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500">No card with them? An owner or manager must apply this reward.</p>
+                  )}
+                  {cardMessage && <p role="alert" className="text-xs text-rose-700">{cardMessage}</p>}
+                </div>
+              )}
+              {appliedPoints > 0 && rewardProof && (
+                <p className="mt-2 text-2xs text-fuchsia-800">{rewardProof.cardCode ? `Card checked: ${rewardProof.cardCode}` : `Without card: ${rewardProof.reason}`}</p>
+              )}
+              {appliedPoints > 0 && maxRedeemablePoints > LOYALTY_REDEMPTION_POINTS ? (
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2">
+                  <div role="group" aria-label="Petals to use" className="flex items-center gap-2">
+                    <button type="button" aria-label="Use fewer petals" disabled={appliedPoints <= LOYALTY_REDEMPTION_POINTS} onClick={() => { setPointsToRedeem(appliedPoints - LOYALTY_REDEMPTION_POINTS); setAmountPaid(''); setAmountError('') }} className="h-8 w-8 rounded-lg border border-fuchsia-200 font-bold text-fuchsia-800 disabled:opacity-40">−</button>
+                    <span className="min-w-20 text-center text-sm font-semibold text-gray-800">{appliedPoints.toLocaleString('fr-FR')} petals</span>
+                    <button type="button" aria-label="Use more petals" disabled={appliedPoints >= maxRedeemablePoints} onClick={() => { setPointsToRedeem(appliedPoints + LOYALTY_REDEMPTION_POINTS); setAmountPaid(''); setAmountError('') }} className="h-8 w-8 rounded-lg border border-fuchsia-200 font-bold text-fuchsia-800 disabled:opacity-40">+</button>
+                  </div>
+                  <p className="text-sm font-bold text-emerald-700">−{loyaltyDiscount.toLocaleString('fr-FR')} DA</p>
                 </div>
               ) : null}
             </div>

@@ -1,21 +1,15 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { parseOrderQrPayload } from '../../lib/orderQr'
+import { useNotification } from '../../context/NotificationContext'
+import { parseOrderScan } from '../../lib/orderBarcode'
+import { announceCardScan, parseCardCode, scanReadings } from '../../lib/scanDecode'
+import { supabase } from '../../lib/supabase'
 
 // A USB scanner acts as a very fast keyboard, ending each code with Enter or
 // Tab. Slower keys reset the buffer, so normal typing is never treated as a scan.
 const MAX_KEY_GAP_MS = 80
 const MAX_LENGTH = 64
-
-// Physical key positions, read as a US layout. This keeps a scan correct when
-// Windows is set to AZERTY but the scanner sends US key positions.
-function physicalCharacter(code) {
-  if (/^Key[A-Z]$/.test(code)) return code.slice(3)
-  if (/^(Digit|Numpad)[0-9]$/.test(code)) return code.slice(-1)
-  if (code === 'Minus' || code === 'NumpadSubtract') return '-'
-  return ''
-}
 
 // The scanned characters landed in whichever field had focus, so take them back out.
 function removeScannedText(element, length) {
@@ -27,49 +21,70 @@ function removeScannedText(element, length) {
   element.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
-// Opens the order when its receipt QR code is scanned, from any screen.
+function firstMatch(readings, parse) {
+  for (const reading of readings) {
+    const result = parse(reading)
+    if (result) return result
+  }
+  return null
+}
+
+// Handles receipt barcodes and loyalty cards from any screen, in any keyboard language.
 export default function OrderQrScanner() {
   const { user } = useAuth()
+  const { addNotification } = useNotification()
   const navigate = useNavigate()
 
   useEffect(() => {
     if (!user) return undefined
-    let typed = ''
-    let physical = ''
+    let keys = []
     let lastKeyAt = 0
+
+    const openOrder = async ({ orderId, orderNumber }) => {
+      if (orderId) {
+        navigate(`/orders/${orderId}`)
+        return
+      }
+      const { data, error } = await supabase.from('orders')
+        .select('id')
+        .ilike('order_number', orderNumber)
+        .limit(1)
+        .maybeSingle()
+      if (error) addNotification(`Could not look up order #${orderNumber}. Check the connection and try again.`, 'error')
+      else if (!data) addNotification(`Order #${orderNumber} was not found.`, 'error')
+      else navigate(`/orders/${data.id}`)
+    }
 
     const onKeyDown = (event) => {
       if (event.ctrlKey || event.metaKey) return
       if (event.key === 'Shift') return
 
       if (event.key === 'Enter' || event.key === 'Tab') {
-        const orderId = parseOrderQrPayload(typed) || parseOrderQrPayload(physical)
-        const length = typed.length
-        typed = ''
-        physical = ''
-        if (!orderId) return
+        const scanned = keys
+        keys = []
+        if (!scanned.length) return
+        const readings = scanReadings(scanned)
+        const order = firstMatch(readings, parseOrderScan)
+        const card = order ? null : firstMatch(readings, parseCardCode)
+        if (!order && !card) return
         event.preventDefault()
         event.stopPropagation()
-        removeScannedText(document.activeElement, length)
-        navigate(`/orders/${orderId}`)
+        removeScannedText(document.activeElement, scanned.length)
+        if (order) void openOrder(order)
+        else announceCardScan(card)
         return
       }
 
-      const now = event.timeStamp
-      if (now - lastKeyAt > MAX_KEY_GAP_MS) {
-        typed = ''
-        physical = ''
-      }
-      lastKeyAt = now
-      if (event.key.length !== 1 || typed.length >= MAX_LENGTH) return
-      typed += event.key
-      physical += physicalCharacter(event.code)
+      if (event.timeStamp - lastKeyAt > MAX_KEY_GAP_MS) keys = []
+      lastKeyAt = event.timeStamp
+      if (keys.length >= MAX_LENGTH) return
+      keys.push({ key: event.key, code: event.code, shift: event.shiftKey })
     }
 
     // Capture phase, so an Enter from a scan can't also submit a form on screen.
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [user, navigate])
+  }, [user, navigate, addNotification])
 
   return null
 }

@@ -1,7 +1,7 @@
 {
   "name": "floral-os",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.12",
   "description": "Blossom POS - Flower Shop Management",
   "author": "Zaki <abdou.noui311@gmail.com>",
   "type": "module",
@@ -59,7 +59,7 @@
     "publish": {
       "provider": "github",
       "owner": "abdouuuuuuuuuuuuu",
-      "repo": "floral-os",
+      "repo": "floral-os-releases",
       "releaseType": "release"
     },
     "win": {

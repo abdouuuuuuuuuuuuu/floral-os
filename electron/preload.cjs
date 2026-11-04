@@ -2,6 +2,12 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
+  receipt: {
+    print: (request) => ipcRenderer.invoke('blossom-receipt:print', request),
+  },
+  loyaltyCards: {
+    exportPdf: (request) => ipcRenderer.invoke('blossom-loyalty-cards:export-pdf', request),
+  },
   cashDrawer: {
     open: () => ipcRenderer.invoke('blossom-cash-drawer:open'),
   },

@@ -99,6 +99,7 @@ import { useFlowerWaste } from "../hooks/useFlowerWaste";
 import { useNotification } from "../context/NotificationContext";
 import { useUndo } from "../context/UndoContext";
 import { ListSkeleton } from "../components/common/Skeleton";
+import { bouquetPetals } from "../lib/loyalty";
 
 const CATEGORY_CONFIG = {
   Flowers: {
@@ -296,6 +297,9 @@ function Products() {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [bouquetLilies, setBouquetLilies] = useState("");
+  const [bouquetRoses, setBouquetRoses] = useState("");
+  const [bouquetOther, setBouquetOther] = useState("");
 
   const [removeQuantity, setRemoveQuantity] = useState("");
   const [removeReason, setRemoveReason] = useState("");
@@ -441,6 +445,9 @@ function Products() {
     setCategory("");
     setDescription("");
     setImageUrl("");
+    setBouquetLilies("");
+    setBouquetRoses("");
+    setBouquetOther("");
     setEditingProduct(null);
   };
 
@@ -463,6 +470,9 @@ function Products() {
     setCategory(product.category || "");
     setDescription(product.description || "");
     setImageUrl(product.image_url || "");
+    setBouquetLilies(product.bouquet_lilies || "");
+    setBouquetRoses(product.bouquet_roses || "");
+    setBouquetOther(product.bouquet_other_flowers || "");
     setShowModal(true);
   }, []);
 
@@ -496,6 +506,9 @@ function Products() {
       category: category || "Uncategorized",
       description: description.trim(),
       image_url: imageUrl.trim() || null,
+      bouquet_lilies: parseInt(bouquetLilies) || 0,
+      bouquet_roses: parseInt(bouquetRoses) || 0,
+      bouquet_other_flowers: parseInt(bouquetOther) || 0,
     };
 
     let result;
@@ -1305,6 +1318,37 @@ function Products() {
                     })}
                 </div>
               </div>
+
+              <fieldset>
+                <legend className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Flowers in this bouquet
+                </legend>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    ["Lilies", bouquetLilies, setBouquetLilies],
+                    ["Roses", bouquetRoses, setBouquetRoses],
+                    ["Other flowers", bouquetOther, setBouquetOther],
+                  ].map(([label, value, setValue]) => (
+                    <label key={label} className="text-xs text-gray-600">
+                      {label}
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        placeholder="0"
+                        className="mt-1 w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all text-sm"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="text-2xs text-gray-400 mt-1.5">
+                  {bouquetPetals(bouquetLilies, bouquetRoses, bouquetOther) > 0
+                    ? `Earns ${bouquetPetals(bouquetLilies, bouquetRoses, bouquetOther)} petals per bouquet.`
+                    : "Leave empty if this is not a bouquet."}
+                </p>
+              </fieldset>
 
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">

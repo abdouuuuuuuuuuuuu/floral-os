@@ -5,11 +5,13 @@ import {
   ChevronDown, ChevronUp, Loader2, ShoppingBag, Hash, Clock, Sparkles, Pencil, Trash2, AlertTriangle
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
+import CustomerCardLink from '../components/CustomerCardLink'
+import PetalHistory from '../components/PetalHistory'
 import { useCustomers } from '../hooks/useCustomers'
 import { useNotification } from '../context/NotificationContext'
 import { supabase } from '../lib/supabase'
 import { ListSkeleton } from '../components/common/Skeleton'
-import { LOYALTY_EARN_DA_PER_POINT, LOYALTY_REDEMPTION_POINTS, LOYALTY_REDEMPTION_DA } from '../lib/loyalty'
+import { LOYALTY_EARN_RULE, LOYALTY_REDEMPTION_POINTS, LOYALTY_REDEMPTION_DA, earnedPetals } from '../lib/loyalty'
 
 const deliveryMethods = [
   { id: 'pickup', label: 'Pickup' },
@@ -79,8 +81,8 @@ function Customers() {
   useEffect(() => {
     const handleCardUpdate = (event) => {
       const { code, customer } = event.detail || {}
-      if (!code || !customer?.customer_id) return
-      setCustomerLoyaltyCards((prev) => ({ ...prev, [customer.customer_id]: code }))
+      if (!customer?.customer_id) return
+      setCustomerLoyaltyCards((prev) => ({ ...prev, [customer.customer_id]: code || '' }))
     }
     window.addEventListener('blossom:loyalty-card-updated', handleCardUpdate)
     return () => window.removeEventListener('blossom:loyalty-card-updated', handleCardUpdate)
@@ -243,6 +245,27 @@ function Customers() {
     refresh()
   }
 
+  const loadCustomerPetals = async (customerId) => {
+    const { data: loyaltyRows, error: loyaltyError } = await supabase.from('customer_loyalty_transactions')
+      .select('id, transaction_type, points_delta, note, created_at, order_id')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false })
+    if (!loyaltyError) {
+      const rows = loyaltyRows || []
+      setCustomerLoyalty(prev => ({
+        ...prev,
+        [customerId]: {
+          balance: rows.reduce((sum, row) => sum + Number(row.points_delta || 0), 0),
+          earned: earnedPetals(rows),
+          transactions: rows,
+          available: true,
+        },
+      }))
+    } else {
+      setCustomerLoyalty(prev => ({ ...prev, [customerId]: { available: false, transactions: [] } }))
+    }
+  }
+
   const toggleExpand = async (customerId) => {
     if (expandedCustomer === customerId) {
       setExpandedCustomer(null)
@@ -251,33 +274,15 @@ function Customers() {
     setExpandedCustomer(customerId)
 
     setLoadingLoyalty(prev => new Set(prev).add(customerId))
-    const [loyaltyResult, cardResult] = await Promise.all([
-      supabase.from('customer_loyalty_transactions')
-        .select('id, transaction_type, points_delta, note, created_at, order_id')
-        .eq('customer_id', customerId)
-        .order('created_at', { ascending: false }),
+    const [, cardResult] = await Promise.all([
+      loadCustomerPetals(customerId),
       supabase.from('customer_loyalty_cards')
         .select('code').eq('customer_id', customerId).maybeSingle(),
     ])
-    const { data: loyaltyRows, error: loyaltyError } = loyaltyResult
     setCustomerLoyaltyCards((prev) => ({
       ...prev,
       [customerId]: cardResult.error ? null : cardResult.data?.code || '',
     }))
-    if (!loyaltyError) {
-      const rows = loyaltyRows || []
-      setCustomerLoyalty(prev => ({
-        ...prev,
-        [customerId]: {
-          balance: rows.reduce((sum, row) => sum + Number(row.points_delta || 0), 0),
-          earned: rows.filter(row => row.transaction_type === 'earn').reduce((sum, row) => sum + Number(row.points_delta || 0), 0),
-          transactions: rows.slice(0, 5),
-          available: true,
-        },
-      }))
-    } else {
-      setCustomerLoyalty(prev => ({ ...prev, [customerId]: { available: false, transactions: [] } }))
-    }
     setLoadingLoyalty(prev => {
       const next = new Set(prev)
       next.delete(customerId)
@@ -460,15 +465,16 @@ function Customers() {
                           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-fuchsia-700 shadow-sm"><Sparkles size={18} /></span>
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div><h4 className="text-sm font-bold text-fuchsia-950">Blossom Petals</h4><p className="mt-0.5 text-xs text-fuchsia-800">Earn 1 petal per {LOYALTY_EARN_DA_PER_POINT} DA paid · {LOYALTY_REDEMPTION_POINTS} petals = {LOYALTY_REDEMPTION_DA} DA off</p><p className="mt-1.5 text-xs text-fuchsia-900">Card ID: <span className="font-mono font-bold">{customerLoyaltyCards[customer.customer_id] || 'No card linked'}</span></p></div>
+                              <div><h4 className="text-sm font-bold text-fuchsia-950">Blossom Petals</h4><p className="mt-0.5 text-xs text-fuchsia-800">{LOYALTY_EARN_RULE} · {LOYALTY_REDEMPTION_POINTS} petals = {LOYALTY_REDEMPTION_DA} DA off</p><CustomerCardLink customer={customer} code={customerLoyaltyCards[customer.customer_id]} /></div>
                               {loadingLoyalty.has(customer.customer_id) ? <Loader2 size={16} className="animate-spin text-fuchsia-600" /> : loyalty?.available && <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-fuchsia-800">{Math.max(0, loyalty.balance).toLocaleString('fr-FR')} petals</span>}
                             </div>
                             {loyalty && !loyalty.available ? (
-                              <p className="mt-3 rounded-lg bg-white/80 p-2 text-xs text-amber-800">Loyalty storage is not available yet. Apply the customer loyalty migration to Supabase.</p>
+                              <p className="mt-3 rounded-lg bg-white/80 p-2 text-xs text-amber-800">Petals could not be loaded. Check the connection and try again.</p>
                             ) : loyalty?.available && (
                               <>
                                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-fuchsia-100"><div className="h-full rounded-full bg-fuchsia-500 transition-all" style={{ width: `${((Math.max(0, loyalty.balance) % LOYALTY_REDEMPTION_POINTS) / LOYALTY_REDEMPTION_POINTS) * 100}%` }} /></div>
                                 <p className="mt-1 text-2xs text-fuchsia-700">{Math.floor(Math.max(0, loyalty.balance) / LOYALTY_REDEMPTION_POINTS)} reward{Math.floor(Math.max(0, loyalty.balance) / LOYALTY_REDEMPTION_POINTS) === 1 ? '' : 's'} available · {Math.max(0, loyalty.balance) % LOYALTY_REDEMPTION_POINTS} petals toward the next one · {loyalty.earned.toLocaleString('fr-FR')} earned to date</p>
+                                <PetalHistory customer={customer} transactions={loyalty.transactions} onChanged={() => loadCustomerPetals(customer.customer_id)} />
                               </>
                             )}
                           </div>

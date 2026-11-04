@@ -6,8 +6,9 @@ import { supabase } from '../lib/supabase'
 import { useNotification } from '../context/NotificationContext'
 import { useAuth } from '../context/AuthContext'
 import { loyaltyDiscountForPoints } from '../lib/loyalty'
+import { parseCardCode } from '../lib/scanDecode'
 
-export default function LoyaltyCardScanModal({ onClose, onOpenCustomer }) {
+export default function LoyaltyCardScanModal({ onClose, onOpenCustomer, scanRequest = null }) {
   const { role } = useAuth()
   const [code, setCode] = useState('')
   const [card, setCard] = useState(null)
@@ -34,13 +35,13 @@ export default function LoyaltyCardScanModal({ onClose, onOpenCustomer }) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
 
-  const findCard = async (event) => {
+  const findCard = async (event, scannedCode) => {
     event?.preventDefault?.()
-    const cardCode = code.trim().toUpperCase()
+    const cardCode = parseCardCode(scannedCode ?? code)
     setStatus('')
     setCard(null)
     setSelectedCustomer(null)
-    if (!/^[A-Z]{1,3}-[A-F0-9]{12}$/.test(cardCode)) {
+    if (!cardCode) {
       setStatus('Enter or scan a valid card ID.')
       return
     }
@@ -56,11 +57,20 @@ export default function LoyaltyCardScanModal({ onClose, onOpenCustomer }) {
       setCode(cardCode)
       if (customer) await loadLoyalty(customer.customer_id)
       if (customer) setStatus(`This card is linked to ${customer.full_name}.`)
-      else setStatus(`Batch ${cardCode.split('-')[0]} card found. Select the customer profile to assign it.`)
+      else setStatus('This card is blank. Select the customer to link it.')
     } catch (error) {
-      setStatus(error?.message || 'Could not look up this card. Check the connection and try again.')
+      console.error('Card lookup failed:', error)
+      setStatus('Could not look up this card. Check the connection and try again.')
     } finally { setBusy(false) }
   }
+
+  // A card scanned anywhere in the app lands here.
+  useEffect(() => {
+    if (!scanRequest) return
+    setCode(scanRequest.code)
+    void findCard(null, scanRequest.code)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanRequest])
 
   const assignCard = async () => {
     if (!card || card.customer_id || !selectedCustomer || busy) return
@@ -93,7 +103,7 @@ export default function LoyaltyCardScanModal({ onClose, onOpenCustomer }) {
       setSelectedCustomer(null)
       setLoyalty({ loading: false, balance: 0, error: false })
       setStatus(`${card.code} is now blank. Select a customer to link it.`)
-      window.dispatchEvent(new CustomEvent('blossom:loyalty-card-updated', { detail: { code: card.code, customer: null } }))
+      window.dispatchEvent(new CustomEvent('blossom:loyalty-card-updated', { detail: { code: null, customer: card.customers } }))
       addNotification(`Card ${card.code} unlinked`, 'success')
     } catch (error) {
       setStatus(error?.message || 'Could not unlink this card.')

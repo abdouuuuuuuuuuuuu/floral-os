@@ -57,6 +57,8 @@ export async function createOrder({
   amountPaid = 0,
   paymentNotes = '',
   loyaltyPointsToRedeem = 0,
+  loyaltyCardCode = null,
+  loyaltyOverrideReason = null,
 }) {
   if (!items?.length) {
     throw new Error('Cannot create an order with no items')
@@ -119,7 +121,7 @@ export async function createOrder({
   const safeRequestId = requestId || makeRequestId()
   const redeemPoints = normalizeRedeemedPoints(loyaltyPointsToRedeem)
   const call = redeemPoints > 0
-    ? { fn: 'blossom_create_loyalty_order', params: { p_order: payload, p_items: itemPayload, p_request_id: safeRequestId, p_points_to_redeem: redeemPoints } }
+    ? { fn: 'blossom_create_loyalty_order', params: { p_order: payload, p_items: itemPayload, p_request_id: safeRequestId, p_points_to_redeem: redeemPoints, p_card_code: loyaltyCardCode, p_override_reason: loyaltyOverrideReason } }
     : { fn: 'blossom_create_order', params: { p_order: payload, p_items: itemPayload, p_request_id: safeRequestId } }
 
   // Offline or mid-blip: queue the exact server call and let it replay when

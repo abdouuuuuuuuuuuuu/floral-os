@@ -38,25 +38,7 @@ export async function printThermalReceipt(
     }
   }
 
-  const iframe = document.createElement('iframe')
-  iframe.id = 'thermal-print-iframe'
-
-  Object.assign(iframe.style, {
-    position: 'fixed',
-    top: '0',
-    left: '-10000px',
-    width: '80mm',
-    height: '1px',
-    overflow: 'hidden',
-    border: 'none',
-    pointerEvents: 'none'
-  })
-
-  document.body.appendChild(iframe)
-
-  const doc = iframe.contentWindow.document
-  doc.open()
-  doc.write(`<!DOCTYPE html>
+  const documentHtml = `<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -209,7 +191,40 @@ export async function printThermalReceipt(
     ${logoHtml}
     ${htmlContent}
   </body>
-</html>`)
+</html>`
+
+  // The desktop app prints straight to the receipt printer as one page sized to
+  // the receipt, so long receipts aren't cut at the driver's default page length.
+  const printDirect = window.electronAPI?.receipt?.print
+  if (printDirect) {
+    try {
+      const result = await printDirect({ html: documentHtml })
+      if (result?.printed) return true
+      console.warn('[printThermalReceipt] Direct print unavailable:', result?.reason)
+    } catch (error) {
+      console.warn('[printThermalReceipt] Direct print failed:', error)
+    }
+  }
+
+  const iframe = document.createElement('iframe')
+  iframe.id = 'thermal-print-iframe'
+
+  Object.assign(iframe.style, {
+    position: 'fixed',
+    top: '0',
+    left: '-10000px',
+    width: '80mm',
+    height: '1px',
+    overflow: 'hidden',
+    border: 'none',
+    pointerEvents: 'none'
+  })
+
+  document.body.appendChild(iframe)
+
+  const doc = iframe.contentWindow.document
+  doc.open()
+  doc.write(documentHtml)
   doc.close()
 
   const win = iframe.contentWindow

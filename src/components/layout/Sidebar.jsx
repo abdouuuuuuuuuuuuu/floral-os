@@ -37,7 +37,7 @@ const navGroups = [
     items: [
       { path: '/products',  label: 'Products',  icon: Package },
       { path: '/customers', label: 'Customers', icon: UserCircle },
-      { path: '/loyalty-cards', label: 'Loyalty cards', icon: QrCode },
+      { path: '/loyalty-cards', label: 'Loyalty', icon: QrCode },
       { path: '/suppliers', label: 'Suppliers', icon: Building2 },
     ],
   },

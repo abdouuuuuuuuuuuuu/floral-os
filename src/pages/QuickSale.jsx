@@ -12,7 +12,8 @@ import { useShopName } from '../hooks/useShopName'
 import { useNotification } from '../context/NotificationContext'
 import SaleComplete from '../components/common/SaleComplete'
 import { printThermalReceipt } from '../utils/printThermal'
-import { orderQrHtml } from '../lib/orderQr'
+import { orderBarcodeHtml } from '../lib/orderBarcode'
+import { petalsReceiptHtml } from '../utils/orderReceipt'
 import { supabase } from '../lib/supabase'
 import PaymentStep from '../components/PaymentStep'
 import { useSettings } from '../hooks/useSettings'
@@ -411,6 +412,7 @@ function QuickSale() {
          </div>`
       : ''
 
+    const petalsHtml = await petalsReceiptHtml(lastOrder.customerId)
     const html = `
       <div style="text-align:center;margin-bottom:8px;">
         <div style="font-size:18px;font-weight:bold;letter-spacing:2px;margin-bottom:2px;">${shopName}</div>
@@ -439,7 +441,8 @@ function QuickSale() {
       <div class="row"><span>Payment</span><span>${lastOrder.paymentMethod}</span></div>
       <div class="row"><span>Source</span><span>${lastOrder.source}</span></div>
       ${lastOrder.notes ? `<div class="row"><span>Notes</span><span>${lastOrder.notes}</span></div>` : ''}
-      ${orderQrHtml(lastOrder.orderId)}
+      ${petalsHtml}
+      ${orderBarcodeHtml(lastOrder.orderNumber)}
       <div class="footer">Thank you!<br>${shopName} — Blossom Workspace</div>
     `
 

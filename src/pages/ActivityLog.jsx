@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import {
   Activity, RefreshCw, Search, ShoppingCart, Banknote, Undo2, XCircle, Trash2,
   RotateCcw, Archive, ArrowRightLeft, Flower2, Vault, Users, Sparkles, Circle,
@@ -28,7 +28,7 @@ const KIND = {
   waste:    { label: 'Flower waste',  Icon: Flower2,       tone: 'amber',   flow: 'none' },
   register: { label: 'Register',      Icon: Vault,         tone: 'violet',  flow: 'none' },
   team:     { label: 'Team',          Icon: Users,         tone: 'sky',     flow: 'none' },
-  loyalty:  { label: 'Loyalty card',  Icon: Sparkles,      tone: 'fuchsia', flow: 'none' },
+  loyalty:  { label: 'Loyalty',       Icon: Sparkles,      tone: 'fuchsia', flow: 'none' },
   cash_in:  { label: 'Money in',      Icon: ArrowDownLeft, tone: 'emerald', flow: 'in' },
   expense:  { label: 'Expense',       Icon: ArrowUpRight,  tone: 'rose',    flow: 'out' },
   product:  { label: 'Product & stock', Icon: Package,     tone: 'amber',   flow: 'none' },
@@ -119,8 +119,11 @@ function detailFacts(row) {
     add('Amount paid', da(d.amount_paid))
     if (d.permanent) out.push(['Permanent', 'Yes — order row removed'])
   } else if (row.kind === 'loyalty') {
-    add('Card', d.code)
+    add('Card', d.code || d.card_code)
     add('Customer', d.customer_name)
+    add('Petals', d.points)
+    add('Discount', d.discount ? da(d.discount) : null)
+    add('Reason', d.reason)
   } else if (row.kind === 'register') {
     add('Amount', da(row.amount))
     add('Register date', d.register_date)
@@ -181,6 +184,11 @@ function ActivityLog() {
   const [toDay, setToDay] = useState(today)
   const [actor, setActor] = useState('')
   const [kind, setKind] = useState('')
+  const location = useLocation()
+  // Another screen can open this log on one type of activity.
+  useEffect(() => {
+    if (location.state?.activityKind) setKind(location.state.activityKind)
+  }, [location.key, location.state])
   const [query, setQuery] = useState('')
   const [openRow, setOpenRow] = useState(null)
   const [staff, setStaff] = useState([])

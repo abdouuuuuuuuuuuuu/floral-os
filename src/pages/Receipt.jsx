@@ -5,13 +5,12 @@ import { supabase } from '../lib/supabase'
 import { useNotification } from '../context/NotificationContext'
 import { useShopName } from '../hooks/useShopName'
 import { printThermalReceipt } from '../utils/printThermal'
-import { orderQrHtml } from '../lib/orderQr'
-import { formatBusinessDate, formatBusinessDateTime } from '../lib/businessDate.js'
-import { shipByDate, transitDaysForRoadDistance } from '../lib/shippingPlan.js'
+import { orderBarcodeHtml } from '../lib/orderBarcode'
+import { petalsReceiptHtml, receiptLocation } from '../utils/orderReceipt'
+import { formatBusinessDateTime } from '../lib/businessDate.js'
 import OrderSuccessAnimation from '../components/common/OrderSuccessAnimation'
 
 const formatMoney = (value) => Number(value || 0).toLocaleString('fr-FR')
-const fulfillmentLabels = { motorcycle: 'Motorcycle', dhd: 'DHD', pickup: 'Shop pickup' }
 const paymentLabels = { cash: 'Cash', baridimob: 'BaridiMob', usd: 'USDT' }
 
 function Receipt() {
@@ -63,6 +62,7 @@ function Receipt() {
           created_at: orderMeta?.created_at || data[0].created_at || null,
           client_name: data[0].client_name,
           client_phone: data[0].client_phone,
+          customer_id: orderMeta?.customer_id ?? null,
           delivery_method: data[0].delivery_method,
           delivery_city: orderMeta?.delivery_city || '',
           delivery_wilaya: orderMeta?.delivery_wilaya || '',
@@ -124,14 +124,7 @@ function Receipt() {
       </tr>
     `).join('')
 
-    const fmtDate = (d) => formatBusinessDate(d)
-    const transitDays = order.shipping_transit_days == null
-      ? transitDaysForRoadDistance(order.shipping_distance_km)
-      : Number(order.shipping_transit_days)
-    const carrierDate = order.delivery_date && transitDays != null
-      ? shipByDate(String(order.delivery_date).slice(0, 10), transitDays)
-      : null
-    const destination = [order.delivery_city, order.delivery_wilaya].filter(Boolean).join(', ')
+    const location = receiptLocation(order)
     const feeAmount = Number(order.delivery_fee_amount || 0)
     const customerTotal = Number(order.total_amount || 0) + feeAmount
     const dueAmount = Number(order.amount_due || 0)
@@ -146,6 +139,7 @@ function Receipt() {
       ${order.payment_notes ? `<div style="font-size:9px;color:#555;margin-top:4px;">Payment note: ${escapeHtml(order.payment_notes)}</div>` : ''}
     `
 
+    const petalsHtml = await petalsReceiptHtml(order.customer_id)
     const html = `
       <div style="text-align:center;margin-bottom:8px;">
         <div style="font-size:18px;font-weight:bold;letter-spacing:2px;margin-bottom:2px;">${escapeHtml(shopName)}</div>
@@ -153,14 +147,12 @@ function Receipt() {
         ${order.created_at ? `<div style="font-size:11px;margin-top:2px;">${escapeHtml(formatBusinessDateTime(order.created_at))}</div>` : ''}
       </div>
       <div class="divider"></div>
-      <div style="margin:8px 0;padding:8px;border:1px solid #ddd;border-radius:6px;">
-        <div class="section">DELIVERY PLAN</div>
-        <div style="font-size:13px;font-weight:bold;">Location: ${escapeHtml(destination || (order.delivery_method === 'pickup' ? 'Shop pickup' : 'Location not set'))}</div>
-        ${order.delivery_method ? `<div style="font-size:10px;color:#555;">${escapeHtml(fulfillmentLabels[order.delivery_method] || order.delivery_method)}</div>` : ''}
-        ${order.delivery_date ? `<div style="font-size:12px;margin-top:5px;">Requested: <strong>${fmtDate(order.delivery_date)}${order.delivery_time ? ` · ${escapeHtml(order.delivery_time)}` : ''}</strong></div>` : ''}
-        ${carrierDate ? `<div style="font-size:12px;margin-top:3px;">Dispatch / prepare by: <strong>${fmtDate(carrierDate)}</strong></div>` : order.delivery_method !== 'pickup' ? '<div style="font-size:11px;color:#8a5a00;margin-top:3px;">Dispatch date pending route estimate</div>' : ''}
-        ${order.client_name ? `<div style="font-size:10px;color:#555;margin-top:5px;">Customer: ${escapeHtml(order.client_name)}${order.client_phone ? ` · ${escapeHtml(order.client_phone)}` : ''}</div>` : ''}
-        ${order.notes ? `<div style="margin-top:7px;padding-top:6px;border-top:1px dashed #cbd5e1;font-size:11px;"><strong>DELIVERY / ORDER NOTE</strong><br>${escapeHtml(order.notes)}</div>` : ''}
+      <div style="margin:8px 0;">
+        <div class="section">CUSTOMER</div>
+        <div style="font-size:13px;font-weight:bold;">${escapeHtml(order.client_name || 'Walk-in customer')}</div>
+        ${order.client_phone ? `<div style="font-size:12px;">${escapeHtml(order.client_phone)}</div>` : ''}
+        ${location ? `<div style="font-size:12px;">Location: ${escapeHtml(location)}</div>` : ''}
+        ${order.notes ? `<div style="font-size:12px;margin-top:4px;">Note: ${escapeHtml(order.notes)}</div>` : ''}
       </div>
       <div class="divider"></div>
       <div style="margin-bottom:8px;">
@@ -169,13 +161,14 @@ function Receipt() {
       </div>
       <div class="divider"></div>
       <div style="margin-bottom:8px;">${financialRows}</div>
-      ${orderQrHtml(order.id)}
+      ${petalsHtml}
+      ${orderBarcodeHtml(order.order_number)}
       <div class="footer">Blossom · Order #${order.order_number}</div>
     `
 
       const didPrint = await printThermalReceipt(html, `FLORAL-OS-Receipt-${order.order_number}`, './logo-Black.png')
       if (!didPrint) throw new Error('The browser did not open the print dialog.')
-      setPrintNotice('The print dialog opened. Finish or cancel printing there; your order is saved either way.')
+      setPrintNotice('Sent to the printer. If a print window opened, finish there. Your order is saved either way.')
       return true
     } catch (printException) {
       console.warn('[receipt] Could not open the print dialog.', printException)
@@ -266,29 +259,13 @@ function Receipt() {
           </header>
 
           <div className="space-y-4 p-4 sm:p-5">
-            {(() => {
-              const days = order.shipping_transit_days == null ? transitDaysForRoadDistance(order.shipping_distance_km) : Number(order.shipping_transit_days)
-              const dispatchDate = order.delivery_date && days != null ? shipByDate(String(order.delivery_date).slice(0, 10), days) : null
-              const destination = [order.delivery_city, order.delivery_wilaya].filter(Boolean).join(', ')
-              return <section className="rounded-xl border border-primary/20 bg-primary-subtle/30 p-4" aria-label="Delivery plan">
-                <h2 className="text-xs font-bold uppercase tracking-wide text-primary">Delivery plan</h2>
-                <p className="mt-2 text-lg font-bold leading-snug text-slate-950">{destination || (order.delivery_method === 'pickup' ? 'Shop pickup' : 'Location not set')}</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <div className="rounded-lg bg-white/80 px-3 py-2.5">
-                    <p className="text-xs font-medium text-slate-500">Requested delivery</p>
-                    <p className="mt-0.5 font-semibold text-slate-900">{order.delivery_date ? formatBusinessDate(order.delivery_date) : 'No date set'}{order.delivery_time ? ` · ${order.delivery_time}` : ''}</p>
-                  </div>
-                  <div className="rounded-lg bg-white/80 px-3 py-2.5">
-                    <p className="text-xs font-medium text-slate-500">Dispatch / prepare by</p>
-                    <p className="mt-0.5 font-semibold text-slate-900">{dispatchDate ? formatBusinessDate(dispatchDate) : order.delivery_method === 'pickup' ? 'Shop pickup' : 'Pending route estimate'}</p>
-                  </div>
-                </div>
-                {order.delivery_method && <p className="mt-2 text-xs text-slate-500">Fulfillment: {fulfillmentLabels[order.delivery_method] || order.delivery_method}</p>}
-                {order.notes && <div className="mt-3 border-t border-slate-200 pt-3"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Delivery / order note</p><p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{order.notes}</p></div>}
-              </section>
-            })()}
-
-            {(order.client_name || order.client_phone) && <p className="text-sm text-slate-600"><span className="font-semibold text-slate-800">Customer:</span> {[order.client_name, order.client_phone].filter(Boolean).join(' · ')}</p>}
+            <section className="rounded-xl border border-primary/20 bg-primary-subtle/30 p-4" aria-label="Customer">
+              <h2 className="text-xs font-bold uppercase tracking-wide text-primary">Customer</h2>
+              <p className="mt-2 text-lg font-bold leading-snug text-slate-950">{order.client_name || 'Walk-in customer'}</p>
+              {order.client_phone && <p className="mt-0.5 text-sm text-slate-700">{order.client_phone}</p>}
+              {receiptLocation(order) && <p className="mt-0.5 text-sm text-slate-700">Location: {receiptLocation(order)}</p>}
+              {order.notes && <p className="mt-3 border-t border-slate-200 pt-3 text-sm text-slate-800"><span className="font-semibold">Note:</span> {order.notes}</p>}
+            </section>
 
             <section aria-labelledby="receipt-items-heading">
               <div className="mb-2 flex items-center justify-between">

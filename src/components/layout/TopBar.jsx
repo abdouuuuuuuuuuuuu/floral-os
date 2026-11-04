@@ -26,7 +26,18 @@ function TopBar({ onMenuClick = () => {}, isNavigationOpen = false }) {
   const [openingDrawer, setOpeningDrawer] = useState(false)
   const [showLoyaltyScanner, setShowLoyaltyScanner] = useState(false)
   const navigate = useNavigate()
-  const closeLoyaltyScanner = useCallback(() => setShowLoyaltyScanner(false), [])
+  const [cardScanRequest, setCardScanRequest] = useState(null)
+  const scannerPageActive = usePageActive()
+  const closeLoyaltyScanner = useCallback(() => { setShowLoyaltyScanner(false); setCardScanRequest(null) }, [])
+  useEffect(() => {
+    if (!scannerPageActive || !canAccessRoute(role, '/customers')) return undefined
+    const onUnclaimedScan = (event) => {
+      setCardScanRequest(event.detail?.code ? { code: event.detail.code, at: Date.now() } : null)
+      setShowLoyaltyScanner(true)
+    }
+    window.addEventListener('blossom:card-scan-unclaimed', onUnclaimedScan)
+    return () => window.removeEventListener('blossom:card-scan-unclaimed', onUnclaimedScan)
+  }, [scannerPageActive, role])
   const openLoyaltyCustomer = useCallback((customerId) => {
     setShowLoyaltyScanner(false)
     navigate('/customers', { state: { topBarSearch: { type: 'customer', id: customerId } } })
@@ -453,6 +464,7 @@ function TopBar({ onMenuClick = () => {}, isNavigationOpen = false }) {
         <LoyaltyCardScanModal
           onClose={closeLoyaltyScanner}
           onOpenCustomer={openLoyaltyCustomer}
+          scanRequest={cardScanRequest}
         />
       )}
     </header>

@@ -1,5 +1,7 @@
 import { printThermalReceipt } from './printThermal'
-import { orderQrHtml } from '../lib/orderQr'
+import { orderBarcodeHtml } from '../lib/orderBarcode'
+import { loyaltyDiscountForPoints } from '../lib/loyalty'
+import { supabase } from '../lib/supabase'
 
 const escapeHtml = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -13,6 +15,29 @@ const formatDate = (value) => {
   if (!value) return ''
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('fr-FR')
+}
+
+/** The customer's petal balance for a receipt. A failed lookup never blocks printing. */
+export async function petalsReceiptHtml(customerId) {
+  if (!customerId) return ''
+  try {
+    const { data, error } = await supabase.from('customer_loyalty_transactions')
+      .select('points_delta').eq('customer_id', customerId)
+    if (error) throw error
+    const balance = Math.max(0, (data || []).reduce((sum, row) => sum + Number(row.points_delta || 0), 0))
+    const reward = loyaltyDiscountForPoints(balance)
+    return `<div class="divider"></div>
+      <div class="center">Your petals: ${balance.toLocaleString('fr-FR')}${reward > 0 ? `<br>Reward ready: ${reward.toLocaleString('fr-FR')} DA off` : ''}</div>`
+  } catch (error) {
+    console.warn('[receipt] Could not load petal balance:', error)
+    return ''
+  }
+}
+
+export function receiptLocation(order) {
+  const place = [order.delivery_city, order.delivery_wilaya].filter(Boolean).join(', ')
+  if (place) return place
+  return order.delivery_method === 'pickup' ? 'Shop pickup' : ''
 }
 
 export async function printOrderReceipt(order, shopName = 'Blossom') {
@@ -35,12 +60,13 @@ export async function printOrderReceipt(order, shopName = 'Blossom') {
     : Number(order.amount_due)
   const paymentStatus = order.payment_status || (dueAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid')
   const paymentLabels = { cash: 'Cash', baridimob: 'BaridiMob', usd: 'USDT' }
-  const deliveryLabels = { motorcycle: 'Motorcycle delivery', dhd: 'DHD delivery', pickup: 'Shop pickup' }
+  const location = receiptLocation(order)
   const createdDate = formatDate(order.created_at)
   const createdTime = order.created_at && !Number.isNaN(new Date(order.created_at).getTime())
     ? new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
     : ''
 
+  const petalsHtml = await petalsReceiptHtml(order.customer_id)
   const html = `
     <div class="center">
       <div class="brand">${escapeHtml(shopName)}</div>
@@ -53,8 +79,7 @@ export async function printOrderReceipt(order, shopName = 'Blossom') {
     <div class="section">Customer</div>
     <div>${escapeHtml(order.client_name || 'Walk-in customer')}</div>
     ${order.client_phone ? `<div>${escapeHtml(order.client_phone)}</div>` : ''}
-    ${order.delivery_date ? `<div class="row"><span>Delivery date</span><span>${escapeHtml(formatDate(order.delivery_date))}${order.delivery_time ? ` ${escapeHtml(order.delivery_time)}` : ''}</span></div>` : ''}
-    ${order.delivery_method ? `<div class="row"><span>Method</span><span>${escapeHtml(deliveryLabels[order.delivery_method] || order.delivery_method)}</span></div>` : ''}
+    ${location ? `<div>Location: ${escapeHtml(location)}</div>` : ''}
     ${order.notes ? `<div style="margin-top:4px;">Note: ${escapeHtml(order.notes)}</div>` : ''}
     <div class="divider"></div>
     <div class="section">Items</div>
@@ -66,7 +91,8 @@ export async function printOrderReceipt(order, shopName = 'Blossom') {
     ${paidAmount > 0 ? `<div class="row"><span>Paid</span><span>${formatAmount(paidAmount)} DA</span></div>` : ''}
     ${dueAmount > 0 ? `<div class="row"><span>Due</span><span>${formatAmount(dueAmount)} DA</span></div>` : ''}
     <div class="total-row"><span>TOTAL</span><span>${formatAmount(order.total_amount)} DA</span></div>
-    ${orderQrHtml(order.id)}
+    ${petalsHtml}
+    ${orderBarcodeHtml(order.order_number)}
     <div class="footer">Thank you for your order!<br>${escapeHtml(shopName)} — Blossom Workspace</div>
   `
 

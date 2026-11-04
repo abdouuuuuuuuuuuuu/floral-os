@@ -101,7 +101,7 @@ function Settings() {
         '/logo-Black.png'
       )
       addNotification(
-        result ? 'Print dialog opened. Select your receipt printer and print the test.' : 'Could not open the print dialog. Check the printer connection and try again.',
+        result ? 'Test receipt sent to the printer. If a print window opened, choose the receipt printer.' : 'Could not open the print dialog. Check the printer connection and try again.',
         result ? 'info' : 'error'
       )
     } catch (error) {

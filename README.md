@@ -60,7 +60,7 @@ The repository contains the USD-rate migration and the `create-team-member` and 
 
 Order totals and the cash ledger use DA. USD is tender against the DA total at the rate shown in Settings; the rate and tender details are recorded in the payment note. Confirm the production ledger’s currency handling before enabling USD.
 
-Receipt printing uses the operating system’s print dialog. Select the receipt printer there; the app currently does not pin a device or silently print. Use **Settings → Print test receipt** to check paper width and readability. Reprint a saved sale from its order receipt. A print failure does not undo the saved order.
+In the desktop app, receipts print directly on the receipt printer (the Windows default if its name looks like one, otherwise the first receipt printer found) as an image sent over ESC/POS, so the driver paper length cannot cut it. If none is found, direct printing fails, the receipt is over about 2 metres, or in a browser, the print dialog opens instead. Use **Settings → Print test receipt** to check paper width and readability. Reprint a saved sale from its order receipt. A print failure does not undo the saved order.
 
 ## Backups and recovery
 
