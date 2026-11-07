@@ -2,6 +2,7 @@ import { printThermalReceipt } from './printThermal'
 import { orderBarcodeHtml } from '../lib/orderBarcode'
 import { loyaltyDiscountForPoints } from '../lib/loyalty'
 import { supabase } from '../lib/supabase'
+import { formatBusinessDate } from '../lib/businessDate.js'
 
 const escapeHtml = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -38,6 +39,33 @@ export function receiptLocation(order) {
   const place = [order.delivery_city, order.delivery_wilaya].filter(Boolean).join(', ')
   if (place) return place
   return order.delivery_method === 'pickup' ? 'Shop pickup' : ''
+}
+
+const deliveryMethodLabels = { pickup: 'Shop pickup', motorcycle: 'Motorcycle delivery', dhd: 'DHD shipping' }
+
+/** Delivery method, date, time and place for a receipt, or null for walk-in quick sales. */
+export function receiptDelivery(order) {
+  if (!order || order.order_type === 'quick_sale') return null
+  const method = deliveryMethodLabels[order.delivery_method] || (order.delivery_method ? 'Delivery' : '')
+  const date = formatBusinessDate(order.delivery_date, 'fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
+  // A null time is stored as 00:00:00 in some rows; treat it as "not set".
+  const time = order.delivery_time && order.delivery_time !== '00:00:00' ? String(order.delivery_time).slice(0, 5) : ''
+  if (!method && !date && !time) return null
+  const place = [order.delivery_city, order.delivery_wilaya].filter(Boolean).join(', ')
+  return { method, date, time, place, isPickup: order.delivery_method === 'pickup' }
+}
+
+/** Thermal-receipt HTML for the delivery block. */
+export function deliveryReceiptHtml(order) {
+  const delivery = receiptDelivery(order)
+  if (!delivery) return ''
+  const when = delivery.isPickup ? 'Pickup' : 'Delivery'
+  return `<div class="divider"></div>
+    <div class="section">${when}</div>
+    ${delivery.method ? `<div class="row"><span>Method</span><span>${escapeHtml(delivery.method)}</span></div>` : ''}
+    <div class="row" style="font-size:14px;font-weight:900;"><span>Date</span><span>${escapeHtml(delivery.date || 'Not set')}</span></div>
+    <div class="row" style="font-size:14px;font-weight:900;"><span>Time</span><span>${escapeHtml(delivery.time || 'Any time')}</span></div>
+    ${delivery.place ? `<div class="row"><span>Address</span><span style="text-align:right;">${escapeHtml(delivery.place)}</span></div>` : ''}`
 }
 
 export async function printOrderReceipt(order, shopName = 'Blossom') {
@@ -79,8 +107,9 @@ export async function printOrderReceipt(order, shopName = 'Blossom') {
     <div class="section">Customer</div>
     <div>${escapeHtml(order.client_name || 'Walk-in customer')}</div>
     ${order.client_phone ? `<div>${escapeHtml(order.client_phone)}</div>` : ''}
-    ${location ? `<div>Location: ${escapeHtml(location)}</div>` : ''}
+    ${location && !receiptDelivery(order) ? `<div>Location: ${escapeHtml(location)}</div>` : ''}
     ${order.notes ? `<div style="margin-top:4px;">Note: ${escapeHtml(order.notes)}</div>` : ''}
+    ${deliveryReceiptHtml(order)}
     <div class="divider"></div>
     <div class="section">Items</div>
     <table><tbody>${rows || '<tr><td>No items</td></tr>'}</tbody></table>

@@ -6,7 +6,7 @@ import { useNotification } from '../context/NotificationContext'
 import { useShopName } from '../hooks/useShopName'
 import { printThermalReceipt } from '../utils/printThermal'
 import { orderBarcodeHtml } from '../lib/orderBarcode'
-import { petalsReceiptHtml, receiptLocation } from '../utils/orderReceipt'
+import { petalsReceiptHtml, receiptLocation, receiptDelivery, deliveryReceiptHtml } from '../utils/orderReceipt'
 import { formatBusinessDateTime } from '../lib/businessDate.js'
 import OrderSuccessAnimation from '../components/common/OrderSuccessAnimation'
 
@@ -74,8 +74,9 @@ function Receipt() {
           shipping_transit_days: orderMeta?.shipping_transit_days ?? null,
           price_adjustment: Number(orderMeta?.price_adjustment || 0),
           tax_amount: Number(orderMeta?.tax_amount || 0),
-          delivery_date: data[0].delivery_date,
-          delivery_time: data[0].delivery_time,
+          order_type: orderMeta?.order_type || null,
+          delivery_date: data[0].delivery_date ?? orderMeta?.delivery_date ?? null,
+          delivery_time: data[0].delivery_time ?? orderMeta?.delivery_time ?? null,
           payment_method: data[0].payment_method,
           payment_status: data[0].payment_status,
           payment_notes: data[0].payment_notes || '',
@@ -151,9 +152,10 @@ function Receipt() {
         <div class="section">CUSTOMER</div>
         <div style="font-size:13px;font-weight:bold;">${escapeHtml(order.client_name || 'Walk-in customer')}</div>
         ${order.client_phone ? `<div style="font-size:12px;">${escapeHtml(order.client_phone)}</div>` : ''}
-        ${location ? `<div style="font-size:12px;">Location: ${escapeHtml(location)}</div>` : ''}
+        ${location && !receiptDelivery(order) ? `<div style="font-size:12px;">Location: ${escapeHtml(location)}</div>` : ''}
         ${order.notes ? `<div style="font-size:12px;margin-top:4px;">Note: ${escapeHtml(order.notes)}</div>` : ''}
       </div>
+      ${deliveryReceiptHtml(order)}
       <div class="divider"></div>
       <div style="margin-bottom:8px;">
         <div class="section">ORDER ITEMS</div>
@@ -217,6 +219,8 @@ function Receipt() {
     )
   }
 
+  const delivery = receiptDelivery(order)
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-sage/60 to-slate-50 px-4 py-6 sm:px-6 sm:py-10">
       <div className="mx-auto max-w-lg">
@@ -263,9 +267,19 @@ function Receipt() {
               <h2 className="text-xs font-bold uppercase tracking-wide text-primary">Customer</h2>
               <p className="mt-2 text-lg font-bold leading-snug text-slate-950">{order.client_name || 'Walk-in customer'}</p>
               {order.client_phone && <p className="mt-0.5 text-sm text-slate-700">{order.client_phone}</p>}
-              {receiptLocation(order) && <p className="mt-0.5 text-sm text-slate-700">Location: {receiptLocation(order)}</p>}
+              {!delivery && receiptLocation(order) && <p className="mt-0.5 text-sm text-slate-700">Location: {receiptLocation(order)}</p>}
               {order.notes && <p className="mt-3 border-t border-slate-200 pt-3 text-sm text-slate-800"><span className="font-semibold">Note:</span> {order.notes}</p>}
             </section>
+
+            {delivery && <section className="rounded-xl border border-sky-200 bg-sky-50/60 p-4" aria-label="Delivery">
+              <h2 className="text-xs font-bold uppercase tracking-wide text-sky-800">{delivery.isPickup ? 'Pickup' : 'Delivery'}</h2>
+              <dl className="mt-2 space-y-1.5 text-sm">
+                {delivery.method && <div className="flex justify-between gap-4"><dt className="text-slate-600">Method</dt><dd className="font-semibold text-slate-900">{delivery.method}</dd></div>}
+                <div className="flex justify-between gap-4"><dt className="text-slate-600">Date</dt><dd className="font-bold tabular-nums text-slate-950">{delivery.date || 'Not set'}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-600">Time</dt><dd className="font-bold tabular-nums text-slate-950">{delivery.time || 'Any time'}</dd></div>
+                {delivery.place && <div className="flex justify-between gap-4"><dt className="text-slate-600">Address</dt><dd className="text-right font-semibold text-slate-900">{delivery.place}</dd></div>}
+              </dl>
+            </section>}
 
             <section aria-labelledby="receipt-items-heading">
               <div className="mb-2 flex items-center justify-between">
