@@ -126,12 +126,20 @@ export async function createOrder({
 
   // Offline or mid-blip: queue the exact server call and let it replay when
   // the connection returns. The server still assigns the order number and
-  // stock, so nothing is faked on the device. Idempotent on the request id.
-  if (!navigator.onLine) {
+  // stock, so nothing is faked on the device. Idempotent on the request id,
+  // per user — so the queued sale remembers who made it.
+  const queueSale = async () => {
+    // getSession() reads the stored session; it works without a connection.
+    const { data: sessionData } = await supabase.auth.getSession()
     await enqueueSale({
       requestId: safeRequestId, kind: 'create_order', fn: call.fn, params: call.params,
+      actorId: sessionData?.session?.user?.id ?? null,
       meta: { total: payload.total_amount, clientName: payload.client_name, orderType },
     })
+  }
+
+  if (!navigator.onLine) {
+    await queueSale()
     return { queued: true, requestId: safeRequestId, order: null, warnings: { negative_stock: [] } }
   }
 
@@ -141,10 +149,7 @@ export async function createOrder({
     return { order: data.order, warnings: data.warnings ?? { negative_stock: [] } }
   } catch (err) {
     if (isNetworkError(err)) {
-      await enqueueSale({
-        requestId: safeRequestId, kind: 'create_order', fn: call.fn, params: call.params,
-        meta: { total: payload.total_amount, clientName: payload.client_name, orderType },
-      })
+      await queueSale()
       return { queued: true, requestId: safeRequestId, order: null, warnings: { negative_stock: [] } }
     }
     throw err instanceof Error ? err : new Error(translateOrderError(err))

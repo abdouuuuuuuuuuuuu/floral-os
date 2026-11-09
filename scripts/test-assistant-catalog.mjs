@@ -29,7 +29,8 @@ const cases = [
   ['delay_order', 'delay order 786 until 2030-11-20', 'order_delay'],
   ['record_order_payment', 'record payment of 1000 DA for order 786', 'order_payment'],
   ['cancel_order', 'cancel order 786', 'order_cancel'],
-  ['delete_order', 'delete order 786', 'order_delete'],
+  // Permanent deletion only routes through the exact confirmation phrase.
+  ['delete_order', 'pepepeace #786', 'order_delete'],
   ['get_business_overview', 'give me a business overview', 'overview'],
   ['find_customer', 'find customer Amal Benali', 'customer_lookup'],
   ['find_supplier', 'find supplier Green Garden', 'supplier_lookup'],
@@ -165,9 +166,10 @@ check('contextual follow-ups resolve before compound-read planning', async () =>
   })
   assert.equal(createFollowup.intent.type, 'order_create')
 
+  // A bare order number after a delete request must not become a delete:
+  // permanent deletion only accepts the exact "pepepeace #<number>" phrase.
   const deleteTarget = classifyQuestion('786', { type: 'order_delete' }, { topic: 'orders', activeOrder: { orderNumber: '786' }, intent: { type: 'order_delete' } })
-  assert.equal(deleteTarget.type, 'order_delete')
-  assert.equal(deleteTarget.orderNumber, '786')
+  assert.notEqual(deleteTarget.type, 'order_delete')
 
   const editResult = await routeAssistantTurn({
     prompt: 'add two roses to this order',
@@ -186,6 +188,11 @@ const order = {
   payment_method: 'cash', status: 'processing', delivery_date: '2030-11-01', delivery_time: '10:00:00',
   delivery_method: 'delivery', notes: '', price_adjustment: 0, order_items: [],
 }
+
+check('a plain "delete order" request is locked behind the confirmation phrase', async () => {
+  const result = await routeAssistantTurn({ prompt: 'delete order 786', role: 'owner', modelEnabled: false })
+  assert.equal(result.intent?.type, 'order_delete_forbidden')
+})
 
 for (const [toolName, prompt, expectedIntent] of cases) {
   check(`intent and catalog mapping: ${toolName}`, async () => {
@@ -390,7 +397,7 @@ const reviewCases = [
   { type: 'order_payment', orderNumber: '786', action: 'payment', amount: 1000, role: 'cashier', responseKey: 'paymentAction' },
   { type: 'order_payment', orderNumber: '786', action: 'refund', amount: 100, role: 'manager', responseKey: 'paymentAction' },
   { type: 'order_cancel', orderNumber: '786', role: 'manager', responseKey: 'cancelOrder' },
-  { type: 'order_delete', orderNumber: '786', role: 'owner', responseKey: 'deleteOrder' },
+  { type: 'order_delete', orderNumber: '786', deleteCommand: 'pepepeace #786', role: 'owner', responseKey: 'deleteOrder' },
 ]
 for (const scenario of reviewCases) {
   check(`confirmation before write: ${scenario.type}${scenario.action ? `/${scenario.action}` : ''}`, async () => {

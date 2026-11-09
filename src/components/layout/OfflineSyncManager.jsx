@@ -78,7 +78,9 @@ export default function OfflineSyncManager() {
             role="status"
             aria-live="polite"
             className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-semibold text-amber-800 shadow-lg"
-            title={online ? 'Syncing held sales…' : 'Sales held until the connection returns'}
+            title={online
+              ? 'Syncing held sales… A sale made by another staff member is sent when that person signs in on this till.'
+              : 'Sales held until the connection returns'}
           >
             {online
               ? <RefreshCw size={14} className="animate-spin" />

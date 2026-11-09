@@ -45,6 +45,20 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          // Split the big libraries out of the app bundle (was one 1.6 MB
+          // file) so they parse separately and cache across app updates.
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined
+            if (/[\\/]node_modules[\\/](recharts|d3-|victory-vendor)/.test(id)) return 'vendor-charts'
+            if (/[\\/]node_modules[\\/](lottie-web|lottie-react)[\\/]/.test(id)) return 'vendor-lottie'
+            if (/[\\/]node_modules[\\/]@supabase[\\/]/.test(id)) return 'vendor-supabase'
+            if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return 'vendor-react'
+            return 'vendor'
+          },
+        },
+      },
     },
     server: {
       proxy: {

@@ -505,7 +505,7 @@ async function resolveQuestionResponse(intent, context = {}) {
     customerQuery = intent.customerId != null
       ? customerQuery.eq('customer_id', intent.customerId)
       : customerQuery.ilike(isPhone ? 'phone' : 'full_name', `%${searchTerm}%`)
-    const { data, count, error } = await customerQuery.order('last_order_date', { ascending: false, nullsFirst: false }).limit(5)
+    const { data, error } = await customerQuery.order('last_order_date', { ascending: false, nullsFirst: false }).limit(5)
     if (error) throw error
     const customers = data || []
     const exactMatch = (customer) => intent.customerId != null

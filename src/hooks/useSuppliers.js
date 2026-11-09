@@ -190,9 +190,9 @@ export function useSuppliers() {
       }
     }
 
-    // These values are checked here so the calculator cannot submit an
-    // impossible amount. They are not sent to the current RPC because its
-    // signature was not supplied/updated yet.
+    // Checked here so the calculator cannot submit an impossible amount. The
+    // paid-now amount is recorded below as a separate pay_supplier call;
+    // receivedAt is still not sent (receive_supplier_stock has no such argument).
     const grandTotal = items.reduce(
       (sum, item) => sum + Number(item.quantity) * Number(item.unitCost),
       0
@@ -216,6 +216,24 @@ export function useSuppliers() {
     if (rpcError) {
       console.error('Receive stock error:', rpcError)
       throw new Error(readable(rpcError, 'Could not record the delivery.'))
+    }
+
+    // "Paid now" used to be validated and then dropped, so the supplier's
+    // balance never showed the money handed over at delivery. Record it as a
+    // normal supplier payment through the existing pay_supplier RPC.
+    if (numericPaidNow > 0) {
+      const { error: payError } = await supabase.rpc('pay_supplier', {
+        p_supplier_id: Number(supplierId),
+        p_amount: numericPaidNow,
+        p_notes: paymentNotes || 'Paid on delivery',
+        p_method: paymentMethod || 'cash',
+        p_transaction_id: null,
+      })
+      if (payError) {
+        console.error('Pay on delivery error:', payError)
+        await Promise.all([fetchTransactions(), fetchSuppliers(), fetchBalances()])
+        throw new Error(`The stock delivery was saved, but the ${numericPaidNow.toLocaleString('fr-FR')} DA payment was not: ${readable(payError, 'record it with "Pay supplier".')}`)
+      }
     }
 
     await Promise.all([fetchTransactions(), fetchSuppliers(), fetchBalances()])

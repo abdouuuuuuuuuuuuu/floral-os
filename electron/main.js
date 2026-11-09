@@ -186,7 +186,9 @@ autoUpdater.on('update-downloaded', (info) => {
   sendToWindow('update-downloaded', info)
 })
 
-ipcMain.on('quit-and-install', () => {
+ipcMain.on('quit-and-install', (event) => {
+  // Same trust check as every other bridge call: only the Blossom page itself.
+  if (!trustedAppWindow(event)) return
   autoUpdater.quitAndInstall(false, true)
 })
 

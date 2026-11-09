@@ -22,13 +22,11 @@ import {
   Banknote,
   Smartphone,
   DollarSign,
-  Trash2,
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import { useCashRegister } from '../hooks/useCashRegister'
 import { printThermalReceipt } from '../utils/printThermal'
 import { useShopName } from '../hooks/useShopName'
-import { useNotification } from '../context/NotificationContext'
 import { addCalendarDays, localDate } from '../lib/businessDate'
 
 // Payment methods are stored lowercase by the write paths; fold anything else
@@ -775,7 +773,6 @@ function ClosingBalanceModal({ isOpen, onClose, computedBalance, openingBalance,
 }
 
 function CoffreForte() {
-  const { addNotification } = useNotification()
   const {
     transactions,
     calendarDays = [],

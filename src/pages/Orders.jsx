@@ -24,7 +24,7 @@ import { useUndo } from '../context/UndoContext'
 import { orderStatusTargets } from '../lib/orderStatus'
 import { archiveOrder } from '../lib/orders'
 import AlgerianPlaceSearch from '../components/AlgerianPlaceSearch'
-import { getShippingPlan, localDateString, shipByDate } from '../lib/shippingPlan'
+import { getShippingPlan, localDateString } from '../lib/shippingPlan'
 import { addCalendarDays, formatBusinessDate, formatBusinessDateTime } from '../lib/businessDate.js'
 import { supabase } from '../lib/supabase'
 import { getFunctionErrorMessage } from '../lib/functionError'
@@ -1394,15 +1394,6 @@ function Orders() {
     addNotification('Prepare-by date updated.', 'success')
   }
 
-  const focusShippingOrder = (order) => {
-    setQueueFilter('all')
-    setDeliveryRange('all')
-    setStatusFilter('all')
-    setPaymentFilter('all')
-    setSearchQuery(String(order.order_number))
-    setPage(0)
-    setFocusRequestedOrder(order.id)
-  }
 
   const handleDelayOrder = async (orderId, deliveryDate, reason) => {
     try {

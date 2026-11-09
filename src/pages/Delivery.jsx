@@ -16,6 +16,12 @@ import { addCalendarDays, BUSINESS_TIME_ZONE, formatBusinessDate, localDate } fr
 
 const fmt = (n) => (n ?? 0).toLocaleString('fr-FR') + ' DA'
 
+// Customer names, phones and notes are typed by staff and end up in printed
+// HTML. Escape them so a "<" in a note can't break or alter the printout.
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+))
+
 function dayLabel(dateStr) {
   const day = String(dateStr || '').slice(0, 10)
   const today = localDate()
@@ -241,17 +247,17 @@ function Delivery() {
           <div class="row" style="font-size:13px">
             <span><strong>${i + 1}. ${
               o.delivery_time && o.delivery_time !== '00:00:00'
-                ? o.delivery_time.slice(0, 5)
+                ? escapeHtml(String(o.delivery_time).slice(0, 5))
                 : 'Any'
             }</strong></span>
-            <span>#${o.order_number}</span>
+            <span>#${escapeHtml(o.order_number)}</span>
           </div>
-          <div style="font-size:12px">${o.client_name || ''}</div>
-          ${o.client_phone ? `<div style="font-size:11px">${o.client_phone}</div>` : ''}
-          ${o.notes ? `<div style="font-size:11px">${o.notes}</div>` : ''}
+          <div style="font-size:12px">${escapeHtml(o.client_name)}</div>
+          ${o.client_phone ? `<div style="font-size:11px">${escapeHtml(o.client_phone)}</div>` : ''}
+          ${o.notes ? `<div style="font-size:11px">${escapeHtml(o.notes)}</div>` : ''}
           ${
             (o.amount_due || 0) > 0
-              ? `<div style="font-size:12px"><strong>COLLECT ${o.amount_due.toLocaleString('fr-FR')} DA</strong></div>`
+              ? `<div style="font-size:12px"><strong>COLLECT ${Number(o.amount_due).toLocaleString('fr-FR')} DA</strong></div>`
               : ''
           }
         </div>`)

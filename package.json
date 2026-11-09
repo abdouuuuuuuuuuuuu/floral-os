@@ -1,7 +1,7 @@
 {
   "name": "floral-os",
   "private": true,
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Blossom POS - Flower Shop Management",
   "author": "Zaki <abdou.noui311@gmail.com>",
   "type": "module",
@@ -12,7 +12,7 @@
     "assistant:eval": "node scripts/evaluate-assistant.mjs",
     "assistant:test": "node scripts/test-assistant-catalog.mjs",
     "preview": "vite preview",
-    "lint": "oxlint .",
+    "lint": "oxlint src electron scripts",
     "electron:dev": "npm run build && electron .",
     "electron:pack": "npm run build && electron-builder",
     "electron:build": "npm run build && electron-builder --win --publish always"

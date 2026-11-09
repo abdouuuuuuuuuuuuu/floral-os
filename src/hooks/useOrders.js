@@ -745,7 +745,12 @@ export function useOrders() {
             category: edit.category || '',
           })
         }
-        const subtotal = nextItems.reduce((sum, line) => sum + Number(line.total_price ?? (line.quantity * line.unit_price) ?? 0), 0)
+        const subtotal = nextItems.reduce((sum, line) => {
+          // quantity * unit_price is NaN (never null) when either is missing,
+          // so a `?? 0` after it never applied. Fall back explicitly.
+          const lineTotal = Number(line.total_price ?? (Number(line.quantity) * Number(line.unit_price)))
+          return sum + (Number.isFinite(lineTotal) ? lineTotal : 0)
+        }, 0)
         const total = Math.max(0, subtotal + Number(orderData.price_adjustment ?? previousOrder.price_adjustment ?? 0) + Number(previousOrder.tax_amount || 0))
         const amountPaid = Number(previousOrder.amount_paid || 0)
         const optimisticOrder = {

@@ -7,9 +7,11 @@
 // tills selling offline can never grab the same number or oversell beyond
 // what the database allows — nothing is invented on the device.
 //
-// Replay is safe because blossom_create_order is idempotent on the request
-// id: if a queued call actually reached the server once, replaying it returns
-// the same order instead of creating a second one.
+// Replay is safe because blossom_create_order is idempotent on the
+// (signed-in user, request id) pair: if a queued call actually reached the
+// server once, replaying it under the SAME user returns the same order instead
+// of creating a second one. That is why every entry records its actorId and is
+// only replayed by that user (see offlineSync.js).
 
 const DB_NAME = 'blossom-offline'
 const STORE = 'outbox'
@@ -52,7 +54,13 @@ async function tx(mode, run) {
   })
 }
 
-/** Add a sale to the outbox. `entry` holds the request id, RPC name, params and display meta. */
+/**
+ * Add a sale to the outbox. `entry` holds the request id, RPC name, params,
+ * display meta and `actorId` — the staff member who made the sale. Only that
+ * person's session may replay it: the server's idempotency key is
+ * (actor, request id), so a replay under another login would be filed under
+ * the wrong person and could record the same sale twice.
+ */
 export async function enqueueSale(entry) {
   const record = { ...entry, status: 'pending', queuedAt: new Date().toISOString() }
   await tx('readwrite', (store) => store.put(record))
