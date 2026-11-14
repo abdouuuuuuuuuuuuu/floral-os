@@ -7,6 +7,7 @@ import { REMEMBERED_USERNAME, isRememberMe } from '../../lib/supabase'
 import { postLoginPath } from '../../lib/permissions'
 import BlossomGlyph from '../brand/BlossomGlyph'
 
+import { APP_VERSION } from '../../lib/appVersion'
 function SignInForm() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -14,6 +15,10 @@ function SignInForm() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // Email reset links cannot open the desktop app (it loads from a local
+  // file, not a web address), so staff passwords are reset by the owner or a
+  // manager from Team. Say so instead of sending a link that goes nowhere.
+  const [showResetHelp, setShowResetHelp] = useState(false)
 
   const passwordRef = useRef(null)
 
@@ -195,13 +200,22 @@ function SignInForm() {
             </span>
           </label>
 
-          <Link
-            to="/auth/reset-password"
+          <button
+            type="button"
+            onClick={() => setShowResetHelp((value) => !value)}
+            aria-expanded={showResetHelp}
+            aria-controls="reset-help"
             className="text-[13px] font-semibold text-primary transition-colors hover:text-accent"
           >
             Forgot password?
-          </Link>
+          </button>
         </div>
+
+        {showResetHelp && (
+          <p id="reset-help" role="status" className="rounded-xl bg-primary/5 px-3.5 py-2.5 text-[13px] leading-relaxed text-[#716A7E]">
+            Ask the shop owner or a manager to set a new password for you from <span className="font-semibold text-primary">Team</span>. You can sign in with it straight away.
+          </p>
+        )}
 
         <button
           type="submit"
@@ -234,6 +248,8 @@ function SignInForm() {
           ? 'You’ll stay signed in on this computer.'
           : 'You’ll be signed out when you close Blossom.'}
       </p>
+
+      <p className="mt-2 text-center text-[11px] text-[#B3ACBB]">Blossom v{APP_VERSION}</p>
     </div>
   )
 }

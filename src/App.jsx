@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { HashRouter, Route, Navigate, useLocation } from 'react-router-dom'
 import KeepAliveRoutes from './components/layout/KeepAliveRoutes'
 import Splash from './pages/Splash'
@@ -8,31 +8,31 @@ import Cart from './pages/Cart'
 import Checkout from './pages/Checkout'
 import Receipt from './pages/Receipt'
 import Orders from './pages/Orders'
-import ArchivedOrders from './pages/ArchivedOrders'
-import QuickSalesHistory from './pages/QuickSalesHistory'
-import Delivery from './pages/Delivery'
-import Team from './pages/TeamMembers'
+const ArchivedOrders = lazy(() => import('./pages/ArchivedOrders'))
+const QuickSalesHistory = lazy(() => import('./pages/QuickSalesHistory'))
+const Delivery = lazy(() => import('./pages/Delivery'))
+const Team = lazy(() => import('./pages/TeamMembers'))
 import ResetPassword from './pages/ResetPassword'
 import UpdatePassword from './pages/UpdatePassword'
 import AuthLayout from './components/layout/AuthLayout'
 import SignInForm from './components/auth/SignInForm'
 import InviteOnly from './pages/InviteOnly'
-import Settings from './pages/Settings'
-import Customers from './pages/Customers'
-import LoyaltyCards from './pages/LoyaltyCards'
-import Reports from './pages/Reports'
+const Settings = lazy(() => import('./pages/Settings'))
+const Customers = lazy(() => import('./pages/Customers'))
+const LoyaltyCards = lazy(() => import('./pages/LoyaltyCards'))
+const Reports = lazy(() => import('./pages/Reports'))
 import ProtectedRoute from './components/layout/ProtectedRoute'
 import RoleGuard from './components/layout/RoleGuard'
-import CoffreForte from './pages/CoffreForte'
-import ActivityLog from './pages/ActivityLog'
-import Suppliers from './pages/Suppliers'
+const CoffreForte = lazy(() => import('./pages/CoffreForte'))
+const ActivityLog = lazy(() => import('./pages/ActivityLog'))
+const Suppliers = lazy(() => import('./pages/Suppliers'))
 import OrderDetail from './pages/OrderDetail'
 import Forbidden from './pages/Forbidden'
 import BlossomAssistant from './components/layout/BlossomAssistant'
 import OfflineSyncManager from './components/layout/OfflineSyncManager'
 import OrderQrScanner from './components/layout/OrderQrScanner'
-import ToastContainer from './components/ui/ToastContainer'
 import ErrorBoundary from './components/common/ErrorBoundary'
+import UpdateNotice from './components/layout/UpdateNotice'
 
 // Brand splash on launch. Kept short: staff reopen the till after every
 // crash, update, or reboot. Keep SPLASH_MS in sync with the splash-progress
@@ -41,6 +41,23 @@ import ErrorBoundary from './components/common/ErrorBoundary'
 const SPLASH_MS = 2000
 const SPLASH_EXIT_MS = 300
 const SKIP_SPLASH_PATHS = ['/auth/update-password', '/auth/reset-password']
+
+// Pages used less often load on first visit instead of at startup, which
+// keeps the main bundle smaller. Once loaded they stay loaded.
+function Lazy({ children }) {
+  return (
+    <Suspense
+      fallback={(
+        <div className="min-h-screen flex items-center justify-center" role="status">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
+          <span className="sr-only">Loading…</span>
+        </div>
+      )}
+    >
+      {children}
+    </Suspense>
+  )
+}
 
 function StartupGate({ children }) {
   const location = useLocation()
@@ -67,7 +84,7 @@ function AppRoutes() {
       <BlossomAssistant />
       <OfflineSyncManager />
       <OrderQrScanner />
-      <ToastContainer />
+      <UpdateNotice />
       <KeepAliveRoutes>
         <Route path="/" element={<Navigate to="/auth/login" replace />} />
 
@@ -87,19 +104,19 @@ function AppRoutes() {
           <Route path="/cart" element={<RoleGuard><Cart /></RoleGuard>} />
           <Route path="/checkout" element={<RoleGuard><Checkout /></RoleGuard>} />
           <Route path="/orders/receipt" element={<RoleGuard><Receipt /></RoleGuard>} />
-          <Route path="/orders/archived" element={<RoleGuard><ArchivedOrders /></RoleGuard>} />
-          <Route path="/orders/quick-sales" element={<RoleGuard><QuickSalesHistory /></RoleGuard>} />
+          <Route path="/orders/archived" element={<RoleGuard><Lazy><ArchivedOrders /></Lazy></RoleGuard>} />
+          <Route path="/orders/quick-sales" element={<RoleGuard><Lazy><QuickSalesHistory /></Lazy></RoleGuard>} />
           <Route path="/orders" element={<RoleGuard><Orders /></RoleGuard>} />
           <Route path="/orders/:id" element={<RoleGuard><OrderDetail /></RoleGuard>} />
-          <Route path="/delivery" element={<RoleGuard><Delivery /></RoleGuard>} />
-          <Route path="/team" element={<RoleGuard><Team /></RoleGuard>} />
-          <Route path="/settings" element={<RoleGuard><Settings /></RoleGuard>} />
-          <Route path="/customers" element={<RoleGuard><Customers /></RoleGuard>} />
-          <Route path="/loyalty-cards" element={<RoleGuard><LoyaltyCards /></RoleGuard>} />
-          <Route path="/reports" element={<RoleGuard><Reports /></RoleGuard>} />
-          <Route path="/suppliers" element={<RoleGuard><Suppliers /></RoleGuard>} />
-          <Route path="/coffre-forte" element={<RoleGuard><CoffreForte /></RoleGuard>} />
-          <Route path="/activity" element={<RoleGuard><ActivityLog /></RoleGuard>} />
+          <Route path="/delivery" element={<RoleGuard><Lazy><Delivery /></Lazy></RoleGuard>} />
+          <Route path="/team" element={<RoleGuard><Lazy><Team /></Lazy></RoleGuard>} />
+          <Route path="/settings" element={<RoleGuard><Lazy><Settings /></Lazy></RoleGuard>} />
+          <Route path="/customers" element={<RoleGuard><Lazy><Customers /></Lazy></RoleGuard>} />
+          <Route path="/loyalty-cards" element={<RoleGuard><Lazy><LoyaltyCards /></Lazy></RoleGuard>} />
+          <Route path="/reports" element={<RoleGuard><Lazy><Reports /></Lazy></RoleGuard>} />
+          <Route path="/suppliers" element={<RoleGuard><Lazy><Suppliers /></Lazy></RoleGuard>} />
+          <Route path="/coffre-forte" element={<RoleGuard><Lazy><CoffreForte /></Lazy></RoleGuard>} />
+          <Route path="/activity" element={<RoleGuard><Lazy><ActivityLog /></Lazy></RoleGuard>} />
           {/* Keep old bookmarks working while Quick Sale now lives in the shared cart/checkout flow. */}
           <Route path="/quick-sale" element={<Navigate to="/cart?mode=quick_sale" replace />} />
         </Route>

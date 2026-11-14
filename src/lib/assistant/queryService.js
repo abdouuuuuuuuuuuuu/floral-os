@@ -238,7 +238,7 @@ async function resolveQuestionResponse(intent, context = {}) {
         let query = database.from('cash_register').select('id, amount, description, category, payment_method, transaction_type, created_at, order_id, register_date')
         if (period) query = query.gte('register_date', period.startDate).lt('register_date', period.endDate)
         else query = query.eq('register_date', targetDate)
-        return query.order('register_date').order('created_at', { ascending: true }).range(from, to)
+        return query.order('register_date').order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to)
       }, 500),
       isSingleDay ? database.from('daily_cash_summary').select('is_closed, opening_balance, closing_balance').eq('register_date', targetDate).maybeSingle() : Promise.resolve({ data: null, error: null }),
     ])
@@ -435,13 +435,13 @@ async function resolveQuestionResponse(intent, context = {}) {
         .lt('delivery_date', today).in('status', ACTIVE_STATUSES)),
       canAccessRoute(role, '/products')
         ? fetchAllRows((from, to) => database.from('products').select('product_id, item_name, stock_level, low_stock_threshold')
-          .eq('is_active', true).order('stock_level', { ascending: true }).range(from, to))
+          .eq('is_active', true).order('stock_level', { ascending: true }).order('product_id', { ascending: true }).range(from, to))
         : Promise.resolve([]),
       canSeeFinancials
-        ? fetchAllRows((from, to) => database.from('orders').select('amount_due').neq('status', 'cancelled').gt('amount_due', 0).range(from, to))
+        ? fetchAllRows((from, to) => database.from('orders').select('id, amount_due').is('deleted_at', null).neq('status', 'cancelled').gt('amount_due', 0).order('id').range(from, to))
         : Promise.resolve([]),
       role === 'owner'
-        ? fetchAllRows((from, to) => database.from('cash_register').select('transaction_type, amount').eq('register_date', today).range(from, to))
+        ? fetchAllRows((from, to) => database.from('cash_register').select('id, transaction_type, amount').eq('register_date', today).order('id').range(from, to))
         : Promise.resolve([]),
       role === 'owner'
         ? database.from('daily_cash_summary').select('is_closed, opening_balance, closing_balance').eq('register_date', today).maybeSingle()
@@ -505,7 +505,7 @@ async function resolveQuestionResponse(intent, context = {}) {
     customerQuery = intent.customerId != null
       ? customerQuery.eq('customer_id', intent.customerId)
       : customerQuery.ilike(isPhone ? 'phone' : 'full_name', `%${searchTerm}%`)
-    const { data, count, error } = await customerQuery.order('last_order_date', { ascending: false, nullsFirst: false }).limit(5)
+    const { data, error } = await customerQuery.order('last_order_date', { ascending: false, nullsFirst: false }).limit(5)
     if (error) throw error
     const customers = data || []
     const exactMatch = (customer) => intent.customerId != null
@@ -765,8 +765,8 @@ async function resolveQuestionResponse(intent, context = {}) {
     }
     if (intent.type === 'unpaid') {
       const due = await fetchAllRows((from, to) => database.from('orders').select(fieldList)
-        .neq('status', 'cancelled').gt('amount_due', 0)
-        .order('created_at', { ascending: true }).range(from, to))
+        .is('deleted_at', null).neq('status', 'cancelled').gt('amount_due', 0)
+        .order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to))
       const total = due.reduce((sum, order) => sum + Number(order.amount_due || 0), 0)
       return {
         title: `${due.length} orders need payment`,
@@ -812,7 +812,7 @@ async function resolveQuestionResponse(intent, context = {}) {
       const itemOrders = await fetchAllRows((from, to) => database.from('orders')
         .select('id, order_items(product_name, quantity, unit_price)')
         .neq('status', 'cancelled').gte('created_at', start).lt('created_at', end)
-        .range(from, to), 500)
+        .order('id').range(from, to), 500)
       const terms = intent.productQuery ? productSearchTerms(intent.productQuery) : []
       const totals = new Map()
       for (const order of itemOrders) for (const item of order.order_items || []) {
@@ -870,7 +870,7 @@ async function resolveQuestionResponse(intent, context = {}) {
     if (!canAccessRoute(role, '/products')) return { title: 'Product stock is restricted', text: 'Your Blossom role cannot access product inventory. Ask an owner or manager to review your access.' }
     const data = await fetchAllRows((from, to) => database.from('products')
       .select('product_id, item_name, stock_level, low_stock_threshold')
-      .eq('is_active', true).order('stock_level', { ascending: true }).range(from, to))
+      .eq('is_active', true).order('stock_level', { ascending: true }).order('product_id', { ascending: true }).range(from, to))
     const low = data.filter((product) => Number(product.stock_level || 0) <= Number(product.low_stock_threshold ?? 10))
     return {
       title: low.length ? `${low.length} products need a stock check` : 'Stock looks healthy',
@@ -1155,7 +1155,7 @@ async function resolveQuestionResponse(intent, context = {}) {
     let periodQuery = regularOrders(database.from('orders').select(fieldList, { count: 'exact' })
       .gte('delivery_date', period.startDate).lt('delivery_date', period.endDate).in('status', intent.statuses || ACTIVE_STATUSES))
       .neq('delivery_method', 'pickup')
-    const { data, count, error } = await periodQuery.order('delivery_date').order('delivery_time', { ascending: true, nullsFirst: false })
+    const { data, count, error } = await periodQuery.order('delivery_date').order('delivery_time', { ascending: true, nullsFirst: false }).order('id')
       .range(page * pageSize, (page + 1) * pageSize - 1)
     if (error) throw error
     const rows = data || []
@@ -1182,7 +1182,7 @@ async function resolveQuestionResponse(intent, context = {}) {
 
   const pageSize = 10
   const page = Math.max(0, Number(intent.page || 0))
-  const { data, count, error } = await query.order('delivery_time', { ascending: true, nullsFirst: false })
+  const { data, count, error } = await query.order('delivery_time', { ascending: true, nullsFirst: false }).order('id')
     .range(page * pageSize, (page + 1) * pageSize - 1)
   if (error) throw error
   const orders = data || []

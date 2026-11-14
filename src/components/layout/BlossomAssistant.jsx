@@ -23,7 +23,7 @@ import { completeConversationAction, emptyConversationContext, setConversationTa
 import { classifyQuestion, normalize, productSearchTerms, reportPeriodFromText } from '../../lib/assistant/intentEngine'
 import { clearAssistantDraft, loadAssistantDraft, saveAssistantDraft } from '../../lib/assistant/draftRecovery'
 import { clearAssistantDiagnostics, getAssistantDiagnostics, isAssistantDiagnosticsEnabled, recordAssistantFeedback, recordAssistantMetric, setAssistantDiagnosticsEnabled } from '../../lib/assistant/diagnostics'
-import { DEFAULT_ASSISTANT_PREFERENCES, loadAssistantPreferences, resetAssistantPreferences, saveAssistantPreferences } from '../../lib/assistant/preferences'
+import { loadAssistantPreferences, resetAssistantPreferences, saveAssistantPreferences } from '../../lib/assistant/preferences'
 
 
 
@@ -1002,7 +1002,7 @@ export default function BlossomAssistant() {
             },
           })
           if (conversationalText) response = { ...response, text: conversationalText }
-        } catch (formatError) {
+        } catch {
           console.warn('[assistant] Grounded wording unavailable; keeping the verified Blossom response.')
         } finally {
           setMessages((current) => current.filter((message) => message.id !== streamingMessageId))
@@ -1173,7 +1173,7 @@ export default function BlossomAssistant() {
     if (!message?.orderForm) return
     const orderForm = message.orderForm
     const nextInitialDraft = orderForm.mode === 'create'
-      ? { ...(orderForm.initialDraft || {}), editorDraft }
+      ? { ...orderForm.initialDraft, editorDraft }
       : { editorDraft }
     setMessages((current) => current.map((item) => item.id !== messageId || item.orderForm?.initialDraft?.editorDraft === editorDraft
       ? item

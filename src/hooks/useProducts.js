@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 
 export function useProducts() {
   const [products, setProducts] = useState([])
-  const [categories, setCategories] = useState([
+  const [categories] = useState([
     { id: 'flowers', name: 'Flowers', color: '#E91E63' },
     { id: 'chocolates', name: 'Chocolates', color: '#795548' },
     { id: 'gifts', name: 'Gifts', color: '#9C27B0' },

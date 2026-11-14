@@ -58,24 +58,34 @@ export function useCart() {
 
   const setItems = useCallback((updater) => setItemsRaw(updater), [])
 
-  const addItem = useCallback((product) => {
+  /**
+   * Add one unit of a product. `position` (optional) is the line index the
+   * product should sit at: a new line is inserted there, an existing line is
+   * moved there. Without it the line keeps its place or goes to the end.
+   */
+  const addItem = useCallback((product, { position = null } = {}) => {
     // useProducts maps stock_level -> stock_quantity before products
     // reach the cart, so check both — Quick Sale passes the raw field.
     const stock = product.stock_quantity ?? product.stock_level ?? 0
 
     setItems((prev) => {
       const existing = prev.find((item) => item.id === product.id)
-
+      let next
       if (existing) {
         const newQuantity = existing.quantity + 1
-        return prev.map((item) =>
+        next = prev.map((item) =>
           item.id === product.id
             ? { ...item, quantity: newQuantity, totalPrice: newQuantity * item.price }
             : item
         )
+      } else {
+        next = [...prev, { ...product, quantity: 1, totalPrice: product.price }]
       }
-
-      return [...prev, { ...product, quantity: 1, totalPrice: product.price }]
+      if (position == null) return next
+      const from = next.findIndex((item) => item.id === product.id)
+      const [line] = next.splice(from, 1)
+      next.splice(Math.max(0, Math.min(position, next.length)), 0, line)
+      return next
     })
 
     // The sale goes through either way, but say so when the count is
@@ -118,6 +128,21 @@ export function useCart() {
     [removeItem, setItems]
   )
 
+  // Lines keep the order the florist arranges them in: it is the order the
+  // checkout review, the saved order, and the receipt list them in.
+  const moveItem = useCallback((productId, toIndex) => {
+    setItems((prev) => {
+      const from = prev.findIndex((item) => item.id === productId)
+      if (from === -1) return prev
+      const target = Math.max(0, Math.min(Number(toIndex) || 0, prev.length - 1))
+      if (target === from) return prev
+      const next = [...prev]
+      const [line] = next.splice(from, 1)
+      next.splice(target, 0, line)
+      return next
+    })
+  }, [setItems])
+
   const clearCart = useCallback(() => {
     setItems([])
     try { if (storageKey) sessionStorage.removeItem(storageKey) } catch { /* noop */ }
@@ -130,6 +155,7 @@ export function useCart() {
     addItem,
     removeItem,
     updateQuantity,
+    moveItem,
     clearCart,
     subtotal,
     total: subtotal,

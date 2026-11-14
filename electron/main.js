@@ -1,6 +1,6 @@
 // electron/main.js
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import { pickReceiptPrinter, printReceipt } from './receiptPrint.js'
 import { execFile } from 'node:child_process'
@@ -8,6 +8,9 @@ import pkg from 'electron-updater'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { promisify } from 'node:util'
+import { logRendererMessages, startLogFile } from './logFile.js'
+
+startLogFile()
 
 const { autoUpdater } = pkg
 const execFileAsync = promisify(execFile)
@@ -186,7 +189,9 @@ autoUpdater.on('update-downloaded', (info) => {
   sendToWindow('update-downloaded', info)
 })
 
-ipcMain.on('quit-and-install', () => {
+ipcMain.on('quit-and-install', (event) => {
+  // Same trust check as every other bridge call: only the Blossom page itself.
+  if (!trustedAppWindow(event)) return
   autoUpdater.quitAndInstall(false, true)
 })
 
@@ -205,7 +210,8 @@ const localModelRequest = async (endpoint, body, timeoutMs = body ? 45_000 : 250
   return payload
 }
 
-ipcMain.handle('blossom-local-model:status', async () => {
+ipcMain.handle('blossom-local-model:status', async (event) => {
+  if (!trustedAppWindow(event)) return { available: false, models: [], error: 'Untrusted local assistant request.' }
   try {
     const data = await localModelRequest('/api/tags')
     return { available: true, models: (data.models || []).map(({ name, size }) => ({ name, size })) }
@@ -315,11 +321,17 @@ ipcMain.on('blossom-local-model:stream', async (event, payload) => {
 
 // ─── Window ─────────────────────────────────────────────────────────────────
 const createWindow = () => {
+  // POS screens are often 1024×768 or 1366×768. The window used to open at
+  // 1400×900 and could not shrink below 1200×700, so on those screens it ran
+  // off the edge and hid the bottom of each page. Fit it to the screen, and
+  // fill small screens completely.
+  const workArea = screen.getPrimaryDisplay().workAreaSize
+  const smallScreen = workArea.width <= 1366 || workArea.height <= 800
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 1200,
-    minHeight: 700,
+    width: Math.min(1400, workArea.width),
+    height: Math.min(900, workArea.height),
+    minWidth: Math.min(1000, workArea.width),
+    minHeight: Math.min(600, workArea.height),
     autoHideMenuBar: true,
     // Don't show a white rectangle while the renderer boots.
     show: false,
@@ -340,8 +352,47 @@ const createWindow = () => {
     icon: path.join(__dirname, '..', 'public', 'icon.ico'),
   })
 
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    if (smallScreen) win.maximize()
+    win.show()
+  })
   mainWindow = win
+  logRendererMessages(win.webContents)
+
+  // The page holds the window open while a sale is being saved (beforeunload).
+  // Ask the person instead of silently refusing to close.
+  win.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: ['Wait', 'Close anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Blossom',
+      message: 'A sale is being saved.',
+      detail: 'Wait a few seconds for it to finish. If you close now, check Orders afterwards to see whether the sale was saved.',
+    })
+    if (choice === 1) event.preventDefault() // preventDefault here means: close anyway
+  })
+
+  // Blossom uses no camera, microphone, location, notifications or MIDI.
+  // Electron grants every permission request by default; refuse all but
+  // copying to the clipboard and full screen.
+  win.webContents.session.setPermissionRequestHandler((_contents, permission, callback) => {
+    callback(permission === 'clipboard-sanitized-write' || permission === 'fullscreen')
+  })
+
+  // A renderer crash (out of memory, GPU driver) used to leave a blank
+  // window until someone restarted the app. Reload it instead. Held sales
+  // are in IndexedDB, so nothing queued is lost.
+  let lastCrashReloadAt = 0
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Window] Renderer gone:', details.reason, details.exitCode)
+    if (details.reason === 'clean-exit' || win.isDestroyed()) return
+    // Do not loop if it crashes again straight away.
+    if (Date.now() - lastCrashReloadAt < 10_000) return
+    lastCrashReloadAt = Date.now()
+    win.webContents.reload()
+  })
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
@@ -375,11 +426,16 @@ const createWindow = () => {
   })
 
   if (!isDev) {
-    setTimeout(() => {
+    const checkForUpdates = () => {
       autoUpdater.checkForUpdatesAndNotify().catch((err) => {
         console.error('[Updater] Check failed:', err?.message || err)
       })
-    }, 3000)
+    }
+    setTimeout(checkForUpdates, 3000)
+    // A till often stays open for days. Check again every few hours so a fix
+    // reaches it without waiting for the next restart.
+    const updateTimer = setInterval(checkForUpdates, 4 * 60 * 60 * 1000)
+    win.on('closed', () => clearInterval(updateTimer))
   }
 
   return win

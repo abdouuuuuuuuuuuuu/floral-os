@@ -1,5 +1,9 @@
 const PRIVATE_PREFIXES = ['blossom.cart:', 'blossom.quick-cart:', 'starredProducts:', 'reports_cache:']
-const LEGACY_KEYS = ['blossom.cart', 'blossom.quick-cart', 'starredProducts']
+// The checkout draft holds the customer, payment and request id of a sale in
+// progress. Left behind, the next person to sign in on this till restored the
+// previous person's checkout.
+const LEGACY_KEYS = ['blossom.cart', 'blossom.quick-cart', 'starredProducts',
+  'blossom-checkout-draft', 'blossom-checkout-request-id', 'blossom-checkout-attempt']
 
 // Clear workstation-local data when a worker signs out. Keep the saved
 // sign-in identifier and Supabase's own auth storage intact.

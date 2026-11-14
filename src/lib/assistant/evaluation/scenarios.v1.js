@@ -31,7 +31,7 @@ export const ASSISTANT_SCENARIOS_V1 = [
   { id: 'followup-order-phone', family: 'followups', prompt: "what's their number", context: { activeOrder: { orderNumber: '786', customerName: 'Amal Benali' }, activeEntity: { type: 'order', orderNumber: '786' } }, type: 'order_lookup', fields: { orderNumber: '786' } },
   { id: 'ambiguous-order-number', family: 'ambiguity', prompt: 'find order 9', type: 'order_clarification' },
   { id: 'empty-customer-target', family: 'ambiguity', prompt: 'find orders', type: 'order_search', fields: { term: null } },
-  { id: 'write-delete-intent', family: 'write-safety', prompt: 'delete order 786', type: 'order_delete', permission: { role: 'cashier', action: 'delete', allowed: false } },
+  { id: 'write-delete-intent', family: 'write-safety', prompt: 'delete order 786', type: 'order_delete_forbidden', permission: { role: 'cashier', action: 'delete', allowed: false } },
   { id: 'role-cash-register', family: 'roles', prompt: 'show cash register today', type: 'cash_register', permission: { role: 'florist', route: '/coffre-forte', allowed: false } },
   { id: 'permission-reports-manager', family: 'roles', prompt: 'show sales yesterday', type: 'report_period', permission: { role: 'manager', route: '/reports', allowed: true } },
   { id: 'timezone-tomorrow', family: 'timezone', prompt: 'show orders tomorrow', type: 'orders_period', fields: { dateField: 'delivery_date' } },

@@ -17,7 +17,7 @@ import { printOrderReceipt } from '../utils/orderReceipt'
 import { archiveOrder, reopenVoidedOrder, restoreVoidedOrder, saveOrderEdits, setOrderStatus, voidOrder } from '../lib/orders'
 import { useUndo } from '../context/UndoContext'
 import { orderStatusTargets } from '../lib/orderStatus'
-import { formatBusinessDate, formatBusinessDateTime } from '../lib/businessDate.js'
+import { formatBusinessDate, formatBusinessDateTime, localDate } from '../lib/businessDate.js'
 import { formatDistance, shipByDate, transitDaysForRoadDistance } from '../lib/shippingPlan.js'
 
 const statusConfig = {
@@ -694,6 +694,7 @@ function OrderDetail() {
                     <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1 block">Date</label>
                     <input
                       type="date"
+                      min={localDate()}
                       value={editForm.delivery_date}
                       onChange={(e) => setEditForm({ ...editForm, delivery_date: e.target.value })}
                       className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"

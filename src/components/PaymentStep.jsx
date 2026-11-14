@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { parseCardCode } from '../lib/scanDecode'
 import { LOYALTY_REDEMPTION_POINTS, loyaltyDiscountForPoints, maxRedeemablePoints as getMaxRedeemablePoints, normalizeRedeemedPoints } from '../lib/loyalty'
 
-export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exchangeRate = 0, customer = null, onConfirm, onCancel, isSubmitting }) {
+export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exchangeRate = 0, customer = null, onConfirm, onCancel, isSubmitting, confirmLabel = null, cancelLabel = 'Back to details' }) {
   const [amountPaid, setAmountPaid] = useState('')
   const [amountError, setAmountError] = useState('')
   const [notes, setNotes] = useState('')
@@ -108,7 +108,10 @@ export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exc
   const receivedInDzd = isUsd ? numericReceived * (rateIsValid ? rate : 0) : numericReceived
   // Keep the order ledger at or below the amount due. Any extra tender is
   // change returned to the customer, not additional revenue/payment credit.
-  const numericPaid = Math.min(numericTotal, receivedInDzd)
+  // Whole dinars, like the ledger. USDT tender can convert to a fraction of a
+  // dinar; paid, due and the paid/partial status must all use the same
+  // rounded amount, or 999.6 DA of 1000 was saved as 1000 paid but "partial".
+  const numericPaid = Math.round(Math.min(numericTotal, receivedInDzd))
   const change = Math.max(0, receivedInDzd - numericTotal)
   const remaining = Math.max(0, numericTotal - numericPaid)
 
@@ -437,7 +440,7 @@ export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exc
               disabled={isSubmitting}
               className="btn btn-secondary flex-1"
             >
-              Back to details
+              {cancelLabel}
             </button>
             <button
               type="button"
@@ -453,7 +456,9 @@ export default function PaymentStep({ total, deliveryFee = 0, paymentMethod, exc
               ) : (
                 <>
                   <ArrowRight size={16} />
-                  {numericPaid > 0 ? (
+                  {confirmLabel ? (
+                    <>{confirmLabel}{numericPaid > 0 && <span className="figure"> · {numericPaid.toLocaleString('fr-FR')} DA</span>}</>
+                  ) : numericPaid > 0 ? (
                     <>Record <span className="figure">{numericPaid.toLocaleString('fr-FR')} DA</span></>
                   ) : (
                     'Continue to review'

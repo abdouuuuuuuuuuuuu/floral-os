@@ -178,7 +178,7 @@ export async function routeAssistantTurn({ prompt, context, previousIntent, mess
           if (safeIntent) return { intent: safeIntent, naturalReply: null, modelError: null, routeSource: 'local-read-plan', synthesisModel: modelName, routeScore: assessment.score, routeEvidence: assessment.evidence }
         }
       }
-    } catch (modelError) {
+    } catch {
       console.warn('[assistant] Read planning unavailable; using the single-read route.')
     }
   }
@@ -257,7 +257,7 @@ export async function routeAssistantTurn({ prompt, context, previousIntent, mess
       routeScore: assessment.score,
       routeEvidence: assessment.evidence,
     }
-  } catch (modelError) {
+  } catch {
     if (needsFallbackClarification(ruleIntent, assessment, normalized)) return fallbackClarification(prompt, assessment, 'local_model_error', modelError)
     return { intent: guardIntent(prompt, ruleIntent, context?.intent || previousIntent), naturalReply: null, modelError, routeSource: 'rules-fallback', fallbackReason: 'local_model_error', routeScore: assessment.score, routeEvidence: assessment.evidence }
   }

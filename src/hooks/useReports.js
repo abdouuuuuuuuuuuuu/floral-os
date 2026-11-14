@@ -211,7 +211,7 @@ export function useReports() {
       .subscribe()
 
     return () => {
-      channel.unsubscribe()
+      void supabase.removeChannel(channel)
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [fetchReports, loadFromCache])

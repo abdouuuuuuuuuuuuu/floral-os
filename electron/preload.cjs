@@ -1,5 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+const subscribe = (channel, callback) => {
+  const listener = (_event, data) => callback(data)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   receipt: {
@@ -11,9 +17,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cashDrawer: {
     open: () => ipcRenderer.invoke('blossom-cash-drawer:open'),
   },
-  onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (_, data) => callback(data)),
-  onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (_, data) => callback(data)),
-  onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (_, data) => callback(data)),
+  // Each returns a function that removes the listener, so a component that
+  // subscribes on mount does not add another listener every time it mounts.
+  onUpdateAvailable: (callback) => subscribe('update-available', callback),
+  onUpdateProgress: (callback) => subscribe('update-progress', callback),
+  onUpdateDownloaded: (callback) => subscribe('update-downloaded', callback),
   quitAndInstall: () => ipcRenderer.send('quit-and-install'),
   localModel: {
     status: () => ipcRenderer.invoke('blossom-local-model:status'),

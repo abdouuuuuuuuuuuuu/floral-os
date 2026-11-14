@@ -12,6 +12,7 @@ import { useNotification } from '../context/NotificationContext'
 import { supabase } from '../lib/supabase'
 import { ListSkeleton } from '../components/common/Skeleton'
 import { LOYALTY_EARN_RULE, LOYALTY_REDEMPTION_POINTS, LOYALTY_REDEMPTION_DA, earnedPetals } from '../lib/loyalty'
+import { useRefreshWhenShown } from '../hooks/useRefreshWhenShown'
 
 const deliveryMethods = [
   { id: 'pickup', label: 'Pickup' },
@@ -50,6 +51,7 @@ const payStatusColors = {
 function Customers() {
   const location = useLocation()
   const { customers, loading, refresh, createCustomer, updateCustomer } = useCustomers()
+  useRefreshWhenShown(refresh)
   const { addNotification } = useNotification()
   const [searchQuery, setSearchQuery] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -106,6 +108,7 @@ function Customers() {
           .in('customer_id', ids)
           .is('deleted_at', null)
           .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
           .range(offset, offset + pageSize - 1)
         if (page.error) { error = page.error; break }
         const rows = page.data || []

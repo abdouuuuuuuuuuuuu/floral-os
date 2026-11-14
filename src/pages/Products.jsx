@@ -27,7 +27,6 @@ import {
   Coffee,
   IceCreamCone,
   Cake,
-  CakeSlice,
   Gem,
   Diamond,
   Crown,
@@ -37,10 +36,8 @@ import {
   Medal,
   Box,
   ShoppingBag,
-  Tag,
   Smartphone,
   Laptop,
-  Monitor,
   Headphones,
   Camera,
   Shirt,
@@ -77,7 +74,6 @@ import {
   FlaskConical,
   Cloud,
   Moon,
-  SunDim,
   Flame,
   Snowflake,
   BookOpen,
@@ -94,12 +90,27 @@ import {
   Target,
 } from "lucide-react";
 import DashboardLayout from "../components/layout/DashboardLayout";
+import LoadErrorBanner from '../components/common/LoadErrorBanner';
 import { useProductsAdmin } from "../hooks/useProductsAdmin";
 import { useFlowerWaste } from "../hooks/useFlowerWaste";
 import { useNotification } from "../context/NotificationContext";
 import { useUndo } from "../context/UndoContext";
 import { ListSkeleton } from "../components/common/Skeleton";
 import { bouquetPetals } from "../lib/loyalty";
+import { useRefreshWhenShown } from '../hooks/useRefreshWhenShown';
+
+// Values the petal rule recognises (blossom_loyalty_points_per_unit):
+// lily 3 · rose 2 · everything else 1.
+const FLOWER_TYPE_OPTIONS = [
+  ["Rose", "Rose · 2 petals"],
+  ["Lily", "Lily · 3 petals"],
+  ["Chrysanthemum", "Chrysanthemum · 1 petal"],
+  ["Alstroemeria", "Alstroemeria · 1 petal"],
+  ["Branch", "Branch · 1 petal"],
+  ["Other flower", "Other flower · 1 petal"],
+];
+const isFlowersCategory = (value) =>
+  ["flowers", "flower", "fleurs", "fleur"].includes(String(value || "").trim().toLowerCase());
 
 const CATEGORY_CONFIG = {
   Flowers: {
@@ -248,18 +259,18 @@ function Products() {
   const location = useLocation();
   const {
     products,
-    categories,
     loading,
     saving,
     createProduct,
     updateProduct,
-    removeStock,
     deleteProduct,
     refresh,
+    error: productsError,
   } = useProductsAdmin();
   const { addNotification } = useNotification();
   const { offerUndo } = useUndo();
   const { recordFlowerWaste, saving: wasteSaving } = useFlowerWaste();
+  useRefreshWhenShown(refresh);
 
   const [searchQuery, setSearchQuery] = useState("");
   const handledSearchLocation = useRef(null);
@@ -300,6 +311,7 @@ function Products() {
   const [bouquetLilies, setBouquetLilies] = useState("");
   const [bouquetRoses, setBouquetRoses] = useState("");
   const [bouquetOther, setBouquetOther] = useState("");
+  const [flowerType, setFlowerType] = useState("");
 
   const [removeQuantity, setRemoveQuantity] = useState("");
   const [removeReason, setRemoveReason] = useState("");
@@ -448,6 +460,7 @@ function Products() {
     setBouquetLilies("");
     setBouquetRoses("");
     setBouquetOther("");
+    setFlowerType("");
     setEditingProduct(null);
   };
 
@@ -473,6 +486,7 @@ function Products() {
     setBouquetLilies(product.bouquet_lilies || "");
     setBouquetRoses(product.bouquet_roses || "");
     setBouquetOther(product.bouquet_other_flowers || "");
+    setFlowerType(product.flower_type || "");
     setShowModal(true);
   }, []);
 
@@ -506,6 +520,7 @@ function Products() {
       category: category || "Uncategorized",
       description: description.trim(),
       image_url: imageUrl.trim() || null,
+      flower_type: flowerType.trim() || null,
       bouquet_lilies: parseInt(bouquetLilies) || 0,
       bouquet_roses: parseInt(bouquetRoses) || 0,
       bouquet_other_flowers: parseInt(bouquetOther) || 0,
@@ -940,6 +955,7 @@ function Products() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {!loading && products.length === 0 && <LoadErrorBanner what="products" error={productsError} onRetry={refresh} />}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
@@ -1318,6 +1334,35 @@ function Products() {
                     })}
                 </div>
               </div>
+
+              {isFlowersCategory(category) && (
+                <div>
+                  <label htmlFor="product-flower-type" className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                    Flower type
+                  </label>
+                  <select
+                    id="product-flower-type"
+                    value={flowerType}
+                    onChange={(e) => setFlowerType(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all text-sm"
+                  >
+                    <option value="">Not set</option>
+                    {FLOWER_TYPE_OPTIONS.map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                    {flowerType && !FLOWER_TYPE_OPTIONS.some(([value]) => value === flowerType) && (
+                      <option value={flowerType}>{flowerType}</option>
+                    )}
+                  </select>
+                  {!flowerType && bouquetPetals(bouquetLilies, bouquetRoses, bouquetOther) === 0 && (
+                    <p role="status" className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      No flower type set. Petals will be guessed from the name, and a name without
+                      "rose" or "lily" earns only 1 petal per stem. Pick the flower type so the customer
+                      gets the right petals.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <fieldset>
                 <legend className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">

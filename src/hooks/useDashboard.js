@@ -89,9 +89,15 @@ export function useDashboard() {
         setWorkQueue(queue)
       }),
       loadSection('payments', async () => {
+        // Only live orders that still owe money. This used to read every order
+        // ever made, archived ones included: the total owed was too high (the
+        // Orders page hides archived orders) and the download grew every day.
+        // Rows with no amount_due yet are kept and worked out below.
         const rows = await fetchAllRows((from, to) => supabase.from('orders')
           .select('id, order_number, client_name, client_phone, total_amount, amount_paid, amount_due, payment_status, created_at, delivery_date, status')
-          .or('status.is.null,status.neq.cancelled')
+          .is('deleted_at', null)
+          // One filter, so both conditions apply together: not cancelled AND owes money.
+          .or('and(or(status.is.null,status.neq.cancelled),or(amount_due.gt.0,amount_due.is.null))')
           .order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to), 500)
         const dueOrders = rows.map((order) => ({
           ...order,
@@ -111,7 +117,7 @@ export function useDashboard() {
         if (!isOwner) { setCashPosition(null); return }
         const rows = await fetchAllRows((from, to) => supabase.from('cash_register')
           .select('transaction_type, amount, is_closed, created_at')
-          .eq('register_date', today).order('created_at', { ascending: true }).range(from, to), 500)
+          .eq('register_date', today).order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to), 500)
         const sum = (type) => rows.filter((row) => row.transaction_type === type)
           .reduce((total, row) => total + Number(row.amount || 0), 0)
         const closing = [...rows].reverse().find((row) => row.transaction_type === 'closing')

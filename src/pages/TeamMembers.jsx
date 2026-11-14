@@ -5,11 +5,13 @@ import {
   KeyRound, RefreshCw, Eye, EyeOff, UserRound, Truck
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
+import LoadErrorBanner from '../components/common/LoadErrorBanner'
 import { useTeam } from '../hooks/useTeam'
 import { useAuth } from '../hooks/useAuth'
 import { useNotification } from '../context/NotificationContext'
 import AddMemberModal from '../components/team/AddMemberModal'
 import { assignableRolesFor, canManageMember } from '../lib/permissions'
+import { useRefreshWhenShown } from '../hooks/useRefreshWhenShown'
 
 // Roles here must match RoleGuard, Sidebar, AddMemberModal and the RLS
 // policies. The old admin/staff keys didn't exist anywhere else, so
@@ -41,7 +43,8 @@ function generatePassword(length = 12) {
 }
 
 function Team() {
-  const { members, loading, refresh, addMember, updateMember, deleteMember, resetPassword } = useTeam()
+  const { members, loading, error: teamError, refresh, addMember, updateMember, deleteMember, resetPassword } = useTeam()
+  useRefreshWhenShown(refresh)
   const { role } = useAuth()
   const { addNotification } = useNotification()
 
@@ -170,6 +173,7 @@ function Team() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {!loading && members.length === 0 && <LoadErrorBanner what="the team" error={teamError} onRetry={refresh} />}
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>

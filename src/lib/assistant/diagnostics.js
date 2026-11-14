@@ -58,10 +58,10 @@ export function recordAssistantMetric({ route, outcome, routeSource, fallbackRea
     const routeDomain = /^order|^orders|^select_result/.test(route || '') ? 'orders'
       : /^product|^stock/.test(route || '') ? 'stock'
         : /^report|^sales|^overview/.test(route || '') ? 'reports'
-          : /^customer/.test(route || '') ? 'customers'
-            : /^supplier/.test(route || '') ? 'suppliers'
+          : String(route || '').startsWith('customer') ? 'customers'
+            : String(route || '').startsWith('supplier') ? 'suppliers'
               : /^deliver|^overdue/.test(route || '') ? 'delivery'
-                : /^cash/.test(route || '') ? 'cash'
+                : String(route || '').startsWith('cash') ? 'cash'
                   : ['greeting', 'help', 'how_to', 'capabilities'].includes(route) ? 'conversation'
                     : 'other'
     increment('route', routeDomain)

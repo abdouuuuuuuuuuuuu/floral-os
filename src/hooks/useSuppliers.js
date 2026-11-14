@@ -1,6 +1,7 @@
 // src/hooks/useSuppliers.js
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { rpcOnce } from '../lib/idempotentRpc'
 
 function readable(error, fallback) {
   const msg = error?.message || ''
@@ -33,8 +34,9 @@ export function useSuppliers() {
   const [error, setError] = useState(null)
   const isMounted = useRef(false)
 
-  const fetchSuppliers = useCallback(async () => {
-    setLoading(true)
+  const fetchSuppliers = useCallback(async (options) => {
+    // A quiet refresh (page shown again) keeps the current list on screen.
+    if (options?.quiet !== true) setLoading(true)
 
     const { data, error: fetchError } = await supabase
       .from('suppliers')
@@ -190,9 +192,9 @@ export function useSuppliers() {
       }
     }
 
-    // These values are checked here so the calculator cannot submit an
-    // impossible amount. They are not sent to the current RPC because its
-    // signature was not supplied/updated yet.
+    // Checked here so the calculator cannot submit an impossible amount. The
+    // paid-now amount is recorded below as a separate pay_supplier call;
+    // receivedAt is still not sent (receive_supplier_stock has no such argument).
     const grandTotal = items.reduce(
       (sum, item) => sum + Number(item.quantity) * Number(item.unitCost),
       0
@@ -203,7 +205,7 @@ export function useSuppliers() {
       throw new Error('Paid now must be between zero and the delivery total.')
     }
 
-    const { data, error: rpcError } = await supabase.rpc('receive_supplier_stock', {
+    const { data, error: rpcError } = await rpcOnce('receive_supplier_stock', {
       p_supplier_id: supplierId,
       p_items: items.map((item) => ({
         product_id: Number(item.productId),
@@ -216,6 +218,28 @@ export function useSuppliers() {
     if (rpcError) {
       console.error('Receive stock error:', rpcError)
       throw new Error(readable(rpcError, 'Could not record the delivery.'))
+    }
+
+    // "Paid now" used to be validated and then dropped, so the supplier's
+    // balance never showed the money handed over at delivery. Record it as a
+    // normal supplier payment through the existing pay_supplier RPC.
+    if (numericPaidNow > 0) {
+      const { error: payError } = await rpcOnce('pay_supplier', {
+        p_supplier_id: Number(supplierId),
+        p_amount: numericPaidNow,
+        p_notes: paymentNotes || 'Paid on delivery',
+        p_method: paymentMethod || 'cash',
+        p_transaction_id: null,
+      })
+      if (payError) {
+        console.error('Pay on delivery error:', payError)
+        await Promise.all([fetchTransactions(), fetchSuppliers(), fetchBalances()])
+        const partial = new Error(`The stock delivery was saved, but the ${numericPaidNow.toLocaleString('fr-FR')} DA payment was not: ${readable(payError, 'record it with "Pay supplier".')}`)
+        // The delivery IS saved. Callers must not offer to save it again,
+        // or the same stock and amount owed are recorded twice.
+        partial.stockSaved = true
+        throw partial
+      }
     }
 
     await Promise.all([fetchTransactions(), fetchSuppliers(), fetchBalances()])
@@ -303,7 +327,7 @@ export function useSuppliers() {
       throw new Error('Enter an amount greater than zero.')
     }
 
-    const { data, error: rpcError } = await supabase.rpc('pay_supplier', {
+    const { data, error: rpcError } = await rpcOnce('pay_supplier', {
       p_supplier_id: Number(supplierId),
       p_amount: numericAmount,
       p_notes: notes || '',
@@ -331,7 +355,7 @@ export function useSuppliers() {
       throw new Error('Enter an amount greater than zero.')
     }
 
-    const { data, error: rpcError } = await supabase.rpc('pay_supplier', {
+    const { data, error: rpcError } = await rpcOnce('pay_supplier', {
       p_supplier_id: null,
       p_amount: numericAmount,
       p_notes: '',
@@ -375,8 +399,8 @@ export function useSuppliers() {
     }
   }, [balances])
 
-  const refresh = useCallback(() => {
-    fetchSuppliers()
+  const refresh = useCallback((options) => {
+    fetchSuppliers(options)
     fetchTransactions()
     fetchBalances()
   }, [fetchSuppliers, fetchTransactions, fetchBalances])

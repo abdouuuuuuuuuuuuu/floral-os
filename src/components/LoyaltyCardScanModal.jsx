@@ -4,6 +4,7 @@ import { Check, Loader2, QrCode, ScanLine, UserRound, X, Sparkles, Wallet } from
 import { CustomerSearch } from './CustomerSearch'
 import { supabase } from '../lib/supabase'
 import { useNotification } from '../context/NotificationContext'
+import { useConfirm } from '../context/ConfirmContext'
 import { useAuth } from '../context/AuthContext'
 import { loyaltyDiscountForPoints } from '../lib/loyalty'
 import { parseCardCode } from '../lib/scanDecode'
@@ -18,6 +19,7 @@ export default function LoyaltyCardScanModal({ onClose, onOpenCustomer, scanRequ
   const [loyalty, setLoyalty] = useState({ loading: false, balance: 0, error: false })
   const inputRef = useRef(null)
   const { addNotification } = useNotification()
+  const confirm = useConfirm()
 
   const loadLoyalty = async (customerId) => {
     if (!customerId) { setLoyalty({ loading: false, balance: 0, error: false }); return }
@@ -94,7 +96,13 @@ export default function LoyaltyCardScanModal({ onClose, onOpenCustomer, scanRequ
 
   const unlinkCard = async () => {
     if (!card || !card.customer_id || busy) return
-    if (!window.confirm(`Unlink card ${card.code} from ${card.customers?.full_name || 'this customer'}? The card becomes blank and can be linked to someone else. Petals stay on the customer.`)) return
+    const ok = await confirm({
+      title: `Unlink card ${card.code}?`,
+      message: `${card.customers?.full_name || 'This customer'} loses this card. It becomes blank and can be linked to someone else. Petals stay on the customer.`,
+      confirmLabel: 'Unlink card',
+      danger: true,
+    })
+    if (!ok) return
     setBusy(true)
     try {
       const { error } = await supabase.rpc('blossom_unlink_loyalty_card', { p_code: card.code })

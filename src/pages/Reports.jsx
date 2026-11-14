@@ -3,13 +3,11 @@ import {
   useEffect,
   useMemo,
   useCallback,
-  useRef,
   useId,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   TrendingUp,
-  TrendingDown,
   ShoppingBag,
   Users,
   DollarSign,
@@ -19,31 +17,16 @@ import {
   ArrowDownRight,
   Download,
   RefreshCw,
-  Filter,
-  ChevronDown,
-  ChevronUp,
   Package,
-  Target,
   PieChart,
   Activity,
-  Clock,
-  Hash,
   CreditCard,
-  Smartphone,
   Store,
   Bike,
   Truck,
-  Eye,
-  Printer,
   FileText,
   Layers,
-  MoreHorizontal,
   X,
-  Sparkles,
-  Zap,
-  Award,
-  Crown,
-  ChevronLeft,
   ChevronRight,
   Search,
   AlertCircle,
@@ -52,7 +35,6 @@ import {
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useReports } from "../hooks/useReports";
 import { useNotification } from "../context/NotificationContext";
-import { supabase } from "../lib/supabase";
 import { addCalendarDays, localDate } from "../lib/assistant/dataAccess";
 import { useFlowerWasteReport } from "../hooks/useFlowerWaste";
 import MonthlyFlowerWasteCard from "../components/reports/MonthlyFlowerWasteCard";
@@ -110,16 +92,6 @@ const formatDate = (dateStr) => {
   }
 };
 
-const formatMonth = (monthStr) => {
-  if (!monthStr) return "";
-  try {
-    const [year, month] = monthStr.split("-");
-    const d = new Date(parseInt(year), parseInt(month) - 1, 1);
-    return d.toLocaleDateString("fr-FR", { month: "short", year: "numeric" });
-  } catch {
-    return monthStr;
-  }
-};
 
 // ─── STAT CARD ─────────────────────────────────────────────────────
 function StatCard({
@@ -984,7 +956,7 @@ function DeliveryMethodCard({ method, count, total, icon: Icon, color }) {
 }
 
 // ─── EXPORT MODAL ─────────────────────────────────────────────────
-function ExportModal({ isOpen, onClose, data, onExport }) {
+function ExportModal({ isOpen, onClose, onExport }) {
   const [format, setFormat] = useState("csv");
   const [exporting, setExporting] = useState(false);
 
@@ -1201,7 +1173,7 @@ function Reports() {
     try {
       await Promise.all([refresh(), refreshWaste()]);
       addNotification("Data refreshed successfully", "success");
-    } catch (err) {
+    } catch {
       addNotification("Failed to refresh data", "error");
     } finally {
       setIsRefreshing(false);

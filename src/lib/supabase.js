@@ -77,7 +77,22 @@ const hybridStorage = {
   },
 }
 
+// Every request gets a time limit. On flaky shop Wi-Fi a connection can hang
+// without ever failing, which left "Saving order…" spinning forever. After the
+// limit the request fails like a dropped connection, so a sale goes to the
+// offline queue (same request id, so it is never recorded twice) and other
+// actions show their normal connection error.
+const REQUEST_TIMEOUT_MS = 30_000
+function fetchWithTimeout(input, init = {}) {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  const signal = init.signal && typeof AbortSignal.any === 'function'
+    ? AbortSignal.any([init.signal, timeout])
+    : init.signal || timeout
+  return fetch(input, { ...init, signal })
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  global: { fetch: fetchWithTimeout },
   auth: {
     storage: hybridStorage,
     persistSession: true,

@@ -6,6 +6,7 @@ import DashboardLayout from '../components/layout/DashboardLayout'
 import ProductPetalsCheck from '../components/ProductPetalsCheck'
 import { useAuth } from '../context/AuthContext'
 import { useNotification } from '../context/NotificationContext'
+import { useConfirm } from '../context/ConfirmContext'
 import { usePageActive } from '../context/PageActiveContext'
 import { supabase } from '../lib/supabase'
 import { LoyaltyCardFront, LoyaltyCardBack } from '../components/LoyaltyCardFace'
@@ -51,6 +52,7 @@ export default function LoyaltyCards() {
   const pageActive = usePageActive()
   const { role } = useAuth()
   const { addNotification } = useNotification()
+  const confirm = useConfirm()
   const [cards, setCards] = useState([])
   const [balances, setBalances] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -75,7 +77,13 @@ export default function LoyaltyCards() {
 
   const unlinkCard = async (card) => {
     if (unlinking) return
-    if (!window.confirm(`Unlink card ${card.code} from ${card.customers?.full_name || 'this customer'}? The card becomes blank and can be linked to someone else. Petals stay on the customer.`)) return
+    const ok = await confirm({
+      title: `Unlink card ${card.code}?`,
+      message: `${card.customers?.full_name || 'This customer'} loses this card. It becomes blank and can be linked to someone else. Petals stay on the customer.`,
+      confirmLabel: 'Unlink card',
+      danger: true,
+    })
+    if (!ok) return
     setUnlinking(card.code)
     try {
       const { error: unlinkError } = await supabase.rpc('blossom_unlink_loyalty_card', { p_code: card.code })

@@ -140,6 +140,10 @@ export function useCashRegister() {
         .select('register_date, transaction_type, amount')
         .gte('register_date', startStr)
         .lte('register_date', endStr)
+        // A stable order is required for paging: without it Postgres may
+        // return rows in a different order per page, so some are counted
+        // twice and others skipped once there are more than 1000 rows.
+        .order('id', { ascending: true })
         .range(offset, offset + 999)
       if (registerError) throw registerError
       registerRows.push(...(page || []))
@@ -297,12 +301,15 @@ export function useCashRegister() {
       const orderIds = [...new Set(cashInEntries.map(t => t.order_id).filter(Boolean))]
       let enrichedOrders = []
       if (orderIds.length > 0) {
-        const { data: ordersData } = await supabase
+        const { data: ordersData, error: ordersError } = await supabase
           .from('orders')
           .select('id, order_number, total_amount, status, created_at, client_name, client_phone, delivery_date, delivery_time, delivery_method, notes, payment_method, amount_paid, payment_status, order_type, deleted_at')
           .in('id', orderIds)
           .is('deleted_at', null)
           .order('created_at', { ascending: true })
+        // Without this, a failed load showed every payment of the day as
+        // belonging to an archived order.
+        if (ordersError) throw ordersError
 
         enrichedOrders = await enrichOrders(ordersData || [])
 

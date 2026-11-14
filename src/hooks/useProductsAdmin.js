@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { rpcOnce } from '../lib/idempotentRpc'
 
 export function useProductsAdmin() {
   const [products, setProducts] = useState([])
@@ -8,8 +9,9 @@ export function useProductsAdmin() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
-  const fetchProducts = useCallback(async () => {
-    setLoading(true)
+  const fetchProducts = useCallback(async (options) => {
+    // A quiet refresh (page shown again) keeps the current list on screen.
+    if (options?.quiet !== true) setLoading(true)
     setError(null)
 
     const { data, error } = await supabase
@@ -54,6 +56,7 @@ export function useProductsAdmin() {
         category: product.category,
         description: product.description,
         image_url: product.image_url,
+        flower_type: product.flower_type || null,
         bouquet_lilies: product.bouquet_lilies ?? 0,
         bouquet_roses: product.bouquet_roses ?? 0,
         bouquet_other_flowers: product.bouquet_other_flowers ?? 0,
@@ -109,6 +112,7 @@ export function useProductsAdmin() {
       ...(updates.category !== undefined && { category: updates.category }),
       ...(updates.description !== undefined && { description: updates.description }),
       ...(updates.image_url !== undefined && { image_url: updates.image_url }),
+      ...(updates.flower_type !== undefined && { flower_type: updates.flower_type || null }),
       ...(updates.bouquet_lilies !== undefined && { bouquet_lilies: updates.bouquet_lilies }),
       ...(updates.bouquet_roses !== undefined && { bouquet_roses: updates.bouquet_roses }),
       ...(updates.bouquet_other_flowers !== undefined && { bouquet_other_flowers: updates.bouquet_other_flowers }),
@@ -150,7 +154,7 @@ export function useProductsAdmin() {
       return { success: false, error: 'Product not found' }
     }
 
-    const { data, error } = await supabase.rpc('remove_product_stock', {
+    const { data, error } = await rpcOnce('remove_product_stock', {
       p_product_id: id,
       p_quantity: quantity,
       p_reason: reason || 'Damaged/Spoiled',

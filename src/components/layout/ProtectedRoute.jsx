@@ -1,21 +1,21 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 function ProtectedRoute() {
   const { user, loading, initialized, verifySession } = useAuth()
   const location = useLocation()
-  const [verifying, setVerifying] = useState(false)
 
-  // Re-verify session on every route change — industry standard
+  // Re-check the session in the background when the page changes.
+  // verifySession is throttled (every 5 minutes) and clears `user` itself
+  // when the session is really gone, which sends the person to sign-in below.
+  // It must not swap the page for a spinner: that unmounted the page and
+  // mounted it again, loading its data twice on every navigation.
   useEffect(() => {
-    if (initialized && !verifying) {
-      setVerifying(true)
-      verifySession().finally(() => setVerifying(false))
-    }
-  }, [location.pathname, initialized])
+    if (initialized) void verifySession()
+  }, [location.pathname, initialized, verifySession])
 
-  if (loading || !initialized || verifying) {
+  if (loading || !initialized) {
     return (
       <div className="min-h-screen bg-sage flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />

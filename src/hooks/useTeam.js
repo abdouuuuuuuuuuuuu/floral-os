@@ -19,8 +19,9 @@ export function useTeam() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const fetchMembers = useCallback(async () => {
-    setLoading(true)
+  const fetchMembers = useCallback(async (options) => {
+    // A quiet refresh (page shown again) keeps the current list on screen.
+    if (options?.quiet !== true) setLoading(true)
     setError(null)
     try {
       const { data, error: fetchError } = await supabase

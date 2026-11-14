@@ -4,6 +4,7 @@ import { Archive, ArrowLeft, CalendarClock, CircleDollarSign, Search, ReceiptTex
 import DashboardLayout from '../components/layout/DashboardLayout'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { useRefreshWhenShown } from '../hooks/useRefreshWhenShown'
 
 const money = (value) => Number(value || 0).toLocaleString('fr-FR')
 const dateTime = (value) => value
@@ -18,8 +19,9 @@ function ArchivedOrders() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const loadArchivedOrders = useCallback(async () => {
-    setLoading(true)
+  const loadArchivedOrders = useCallback(async (options) => {
+    // A quiet refresh (page shown again) keeps the current list on screen.
+    if (options?.quiet !== true) setLoading(true)
     setError('')
     try {
       const rows = []
@@ -51,6 +53,7 @@ function ArchivedOrders() {
   useEffect(() => {
     if (role === 'owner') loadArchivedOrders()
   }, [loadArchivedOrders, role])
+  useRefreshWhenShown(role === 'owner' ? loadArchivedOrders : null)
 
   const visibleOrders = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()

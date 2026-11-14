@@ -4,188 +4,124 @@
 //
 // A confirm dialog costs a click on every single action and stops
 // preventing mistakes within about a week — people learn the shape of
-// the button and click through it without reading. It's a tax on the
-// 99% of actions that were intentional, paid to protect the 1% that
-// weren't, and it doesn't even do that well.
-//
-// Undo is strictly better: nothing interrupts, and when a mistake does
-// happen it's actually recoverable. This is only honest because the
-// reversals genuinely exist — void_order, adjust_stock and
-// void_supplier_entry all restore stock and money properly.
+// the button and click through it without reading. Undo is better: nothing
+// interrupts, and when a mistake does happen it's actually recoverable. This
+// is only honest because the reversals genuinely exist — void_order,
+// adjust_stock and void_supplier_entry all restore stock and money properly.
 //
 // The one thing this DOESN'T replace: actions that can't be undone.
 // Those still deserve a confirm. See ConfirmContext.
+//
+// Where it shows: in the notification bell, like every other alert (there are
+// no floating bars). Each undoable action posts an alert with an "Undo"
+// button that works for UNDO_WINDOW_MS; Ctrl+Z undoes the latest one. Once
+// used or expired, the button is removed so nothing is undone twice. Where the
+// server has its own limit (undoing a cancellation), it still applies.
 
-import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
-import { Undo2, X } from 'lucide-react'
+import { createContext, useContext, useCallback, useRef, useEffect } from 'react'
+import { useNotification } from './NotificationContext'
 
 const UndoContext = createContext(null)
 
-const WINDOW_MS = 6000
+// Long enough to open the bell and press Undo; the bar used to give 6 s.
+const UNDO_WINDOW_MS = 2 * 60 * 1000
 
 export function UndoProvider({ children }) {
-  const [pending, setPending] = useState(null)
-  const pendingRef = useRef(null)
-  const timerRef = useRef(null)
-  const undoInProgressRef = useRef(false)
-  const undoRequestRef = useRef(0)
-  const [isUndoing, setIsUndoing] = useState(false)
-  const [undoError, setUndoError] = useState('')
-  const [remaining, setRemaining] = useState(WINDOW_MS)
+  const { addNotification, clearNotificationAction } = useNotification()
+  // The latest undoable action: { notificationId, message, onUndo, at, state }
+  // state: 'open' | 'running' | 'done' | 'expired'
+  const latestRef = useRef(null)
+  const timersRef = useRef(new Set())
 
-  const clear = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = null
-    pendingRef.current = null
-    setPending(null)
-    setUndoError('')
-    setIsUndoing(false)
-    undoInProgressRef.current = false
-    undoRequestRef.current += 1
-  }, [])
+  const runUndo = useCallback(async (record) => {
+    if (!record || record.state === 'running' || record.state === 'done') return
+    if (record.state === 'expired' || Date.now() - record.at > UNDO_WINDOW_MS) {
+      record.state = 'expired'
+      clearNotificationAction(record.notificationId)
+      addNotification(`Too late to undo: ${record.message}`, 'warning')
+      return
+    }
+    record.state = 'running'
+    clearNotificationAction(record.notificationId)
+    try {
+      // The pages that offer Undo report the result themselves ("… restored",
+      // "Cancellation undone…") or show it on screen, so no extra alert here.
+      await record.onUndo?.()
+      record.state = 'done'
+      if (latestRef.current === record) latestRef.current = null
+    } catch (err) {
+      console.error('Undo failed:', err)
+      record.state = 'open'
+      addNotification(err?.message || 'Undo failed. You can try again.', 'error', {
+        action: { label: 'Try again', onClick: () => { void runUndo(record) } },
+      })
+    }
+  }, [addNotification, clearNotificationAction])
 
   /**
-   * Runs an action immediately and offers a window to reverse it.
+   * The action has already happened; this offers a way to reverse it.
    *
    * @param {object}   opts
    * @param {string}   opts.message  what happened, past tense
    * @param {Function} opts.onUndo   reverses it; may be async
-   * @param {Function} [opts.onCommit] runs if the window expires
+   * @param {Function} [opts.onCommit] runs when the undo window closes
    */
-  const offerUndo = useCallback(
-    ({ message, onUndo, onCommit }) => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = null
+  const offerUndo = useCallback(({ message, onUndo, onCommit }) => {
+    const record = { message, onUndo, at: Date.now(), state: 'open', notificationId: null }
+    record.notificationId = addNotification(message, 'success', {
+      action: { label: 'Undo', onClick: () => { void runUndo(record) } },
+    })
+    latestRef.current = record
 
-      // A second action commits the first one instead of silently losing
-      // its undo window. Keep the active record in a ref so timers and
-      // keyboard handlers always act on the latest operation.
-      if (pendingRef.current && !undoInProgressRef.current) {
-        pendingRef.current.onCommit?.()
+    const timer = setTimeout(() => {
+      timersRef.current.delete(timer)
+      if (record.state === 'open') {
+        record.state = 'expired'
+        clearNotificationAction(record.notificationId)
+        onCommit?.()
       }
+      if (latestRef.current === record) latestRef.current = null
+    }, UNDO_WINDOW_MS)
+    timersRef.current.add(timer)
+  }, [addNotification, clearNotificationAction, runUndo])
 
-      const next = { message, onUndo, onCommit, at: Date.now() }
-      pendingRef.current = next
-      setPending(next)
-      setUndoError('')
-      setIsUndoing(undoInProgressRef.current)
-      setRemaining(WINDOW_MS)
+  const undo = useCallback(() => runUndo(latestRef.current), [runUndo])
 
-      timerRef.current = setTimeout(() => {
-        const current = pendingRef.current
-        current?.onCommit?.()
-        pendingRef.current = null
-        setPending(null)
-        timerRef.current = null
-      }, WINDOW_MS)
-    },
-    []
-  )
-
-  const undo = useCallback(async () => {
-    const current = pendingRef.current
-    if (!current || undoInProgressRef.current) return
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = null
-    const requestId = ++undoRequestRef.current
-    undoInProgressRef.current = true
-    setIsUndoing(true)
-    setUndoError('')
-    try {
-      await current.onUndo?.()
-      if (pendingRef.current === current) clear()
-    } catch (err) {
-      console.error('Undo failed:', err)
-      if (pendingRef.current === current) {
-        setUndoError(err?.message || 'Undo failed. You can try again.')
-        setRemaining(0)
-      }
-    } finally {
-      if (undoRequestRef.current === requestId) {
-        undoInProgressRef.current = false
-        setIsUndoing(false)
-      }
+  // Stop offering Undo for the latest action (used when a later step makes
+  // reversing it unsafe, e.g. reopening a cancelled order).
+  const dismissUndo = useCallback(() => {
+    const record = latestRef.current
+    if (record && record.state === 'open') {
+      record.state = 'expired'
+      clearNotificationAction(record.notificationId)
     }
-  }, [clear])
+    latestRef.current = null
+  }, [clearNotificationAction])
 
-  // Countdown for the ring. 100ms is smooth enough and cheap.
+  // Ctrl+Z undoes the latest action while its window is open, unless the
+  // person is typing (then Ctrl+Z belongs to the text field).
   useEffect(() => {
-    if (!pending) return
-    const t = setInterval(() => {
-      setRemaining(Math.max(0, WINDOW_MS - (Date.now() - pending.at)))
-    }, 100)
-    return () => clearInterval(t)
-  }, [pending])
-
-  // Ctrl+Z while the window is open. The shortcut people already try.
-  useEffect(() => {
-    if (!pending) return
     const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault()
-        undo()
-      }
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return
+      const target = e.target
+      if (target?.closest?.('input, textarea, [contenteditable="true"]')) return
+      const record = latestRef.current
+      if (!record || record.state !== 'open') return
+      e.preventDefault()
+      void runUndo(record)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [pending, undo])
+  }, [runUndo])
 
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
-
-  const progress = remaining / WINDOW_MS
+  useEffect(() => {
+    const timers = timersRef.current
+    return () => { timers.forEach(clearTimeout); timers.clear() }
+  }, [])
 
   return (
-    <UndoContext.Provider value={{ offerUndo, undo, dismissUndo: clear, hasPending: Boolean(pending) }}>
+    <UndoContext.Provider value={{ offerUndo, undo, dismissUndo, hasPending: Boolean(latestRef.current) }}>
       {children}
-
-      {pending && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[75] sheet-enter"
-          role="status"
-          aria-live="polite"
-        >
-          <div className="flex items-center gap-3 bg-gray-900 text-white rounded-xl pl-4 pr-2 py-2.5 shadow-2xl max-w-[calc(100vw-1.5rem)]">
-            <span className="text-sm">{isUndoing ? 'Undoing…' : undoError || pending.message}</span>
-
-            <button
-              onClick={undo}
-              disabled={isUndoing}
-              aria-busy={isUndoing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 press text-sm font-semibold disabled:opacity-60 disabled:cursor-wait"
-            >
-              {/* The ring drains, so the window is visible rather than
-                  something you have to guess at. */}
-              <span className="relative w-4 h-4 shrink-0">
-                <svg viewBox="0 0 16 16" className="absolute inset-0 -rotate-90">
-                  <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.25" />
-                  <circle
-                    cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.5"
-                    strokeDasharray={2 * Math.PI * 6.5}
-                    strokeDashoffset={2 * Math.PI * 6.5 * (1 - progress)}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                {isUndoing
-                  ? <span className="absolute inset-0 m-auto w-2.5 h-2.5 border border-white/40 border-t-white rounded-full animate-spin" />
-                  : <Undo2 size={9} className="absolute inset-0 m-auto" />}
-              </span>
-              {isUndoing ? 'Working' : undoError ? 'Retry' : 'Undo'}
-            </button>
-
-            <button
-              onClick={() => {
-                pending.onCommit?.()
-                clear()
-              }}
-              disabled={isUndoing}
-              aria-label="Dismiss"
-              className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 press disabled:opacity-40"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
     </UndoContext.Provider>
   )
 }

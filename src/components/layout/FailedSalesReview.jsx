@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Loader2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useNotification } from '../../context/NotificationContext'
+import { useConfirm } from '../../context/ConfirmContext'
 import { removeQueuedSale } from '../../lib/offlineQueue'
 import { retryFailedSale } from '../../lib/offlineSync'
 import { loyaltyDiscountForPoints } from '../../lib/loyalty'
@@ -12,6 +13,7 @@ import { loyaltyDiscountForPoints } from '../../lib/loyalty'
 export default function FailedSalesReview({ sales, onClose }) {
   const { role } = useAuth()
   const { addNotification } = useNotification()
+  const confirm = useConfirm()
   const [busyId, setBusyId] = useState(null)
   const canDiscard = role === 'owner' || role === 'manager'
 
@@ -26,8 +28,14 @@ export default function FailedSalesReview({ sales, onClose }) {
     }
   }
 
-  const discard = (sale) => {
-    if (!window.confirm(`Delete this sale for ${sale.meta?.clientName || 'this customer'}? It will not be recorded anywhere, and any money taken must be handled by hand.`)) return
+  const discard = async (sale) => {
+    const ok = await confirm({
+      title: 'Delete this held sale?',
+      message: `The sale for ${sale.meta?.clientName || 'this customer'} will not be recorded anywhere, and any money taken must be handled by hand.`,
+      confirmLabel: 'Delete sale',
+      danger: true,
+    })
+    if (!ok) return
     void run(sale, () => removeQueuedSale(sale.requestId))
   }
 

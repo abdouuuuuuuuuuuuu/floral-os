@@ -1,6 +1,7 @@
 // src/hooks/useFlowerWaste.js
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { rpcOnce } from "../lib/idempotentRpc";
 
 function localDateString(date) {
   const year = date.getFullYear();
@@ -47,7 +48,7 @@ export function useFlowerWaste() {
 
       setSaving(true);
       try {
-        const { data, error } = await supabase.rpc("record_flower_waste", {
+        const { data, error } = await rpcOnce("record_flower_waste", {
           p_product_id: parsedProductId,
           p_quantity: parsedQuantity,
           p_reason:

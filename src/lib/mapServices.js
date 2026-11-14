@@ -16,7 +16,15 @@ function normalizePlaceText(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 }
 
+// Circuit breaker: after OpenStreetMap fails or is too slow, skip it for a
+// while and answer from the built-in commune list straight away, instead of
+// making the cashier wait for the same failure on every search.
+const OSM_TIMEOUT_MS = 6000
+const OSM_COOLDOWN_MS = 2 * 60 * 1000
+let osmUnavailableUntil = 0
+
 async function queryOpenStreetMap(query, limit = 6) {
+  if (Date.now() < osmUnavailableUntil) throw new Error('OpenStreetMap place search is temporarily unavailable.')
   const requestAt = Math.max(Date.now(), lastPlaceSearchAt + 1100)
   lastPlaceSearchAt = requestAt
   const delay = requestAt - Date.now()
@@ -30,8 +38,19 @@ async function queryOpenStreetMap(query, limit = 6) {
     countrycodes: 'dz',
     limit: String(limit),
   }).toString()
-  const response = await fetch(url, { headers: { Accept: 'application/json' } })
-  if (!response.ok) throw new Error('OpenStreetMap place search is temporarily unavailable.')
+  let response
+  try {
+    response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(OSM_TIMEOUT_MS) })
+  } catch (error) {
+    osmUnavailableUntil = Date.now() + OSM_COOLDOWN_MS
+    throw error
+  }
+  if (!response.ok) {
+    // 429 means we were rate limited: back off like any other failure.
+    osmUnavailableUntil = Date.now() + OSM_COOLDOWN_MS
+    throw new Error('OpenStreetMap place search is temporarily unavailable.')
+  }
+  osmUnavailableUntil = 0
   const rows = await response.json()
   return (Array.isArray(rows) ? rows : []).map((row) => {
     const address = row.address || {}
@@ -60,8 +79,8 @@ async function loadCommuneDirectory() {
 
     try {
       const [communesResponse, wilayasResponse] = await Promise.all([
-        fetch(COMMUNE_DATA_URL, { headers: { Accept: 'application/json' } }),
-        fetch(WILAYA_DATA_URL, { headers: { Accept: 'application/json' } }),
+        fetch(COMMUNE_DATA_URL, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) }),
+        fetch(WILAYA_DATA_URL, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) }),
       ])
       if (!communesResponse.ok || !wilayasResponse.ok) return null
       const [communes, wilayas] = await Promise.all([communesResponse.json(), wilayasResponse.json()])

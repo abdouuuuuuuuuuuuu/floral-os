@@ -726,14 +726,13 @@ export function AssistantDelayOrder({ order, role, initialDraft = null, onDraftC
   const dateKey = (date) => new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Africa/Algiers', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(date)
+  // Any day from today on: later, earlier, or a correction. The server
+  // applies the same rule, for pickup and delivery orders alike.
   const today = dateKey(new Date())
-  const tomorrowDate = new Date(`${today}T00:00:00.000Z`)
-  tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
-  const tomorrow = tomorrowDate.toISOString().slice(0, 10)
-  const nextExistingDate = order.delivery_date ? new Date(`${order.delivery_date}T00:00:00Z`) : null
-  if (nextExistingDate) nextExistingDate.setUTCDate(nextExistingDate.getUTCDate() + 1)
-  const minimumDate = nextExistingDate ? [tomorrow, dateKey(nextExistingDate)].sort().at(-1) : tomorrow
-  const [deliveryDate, setDeliveryDate] = useState(() => initialDraft?.deliveryDate || (order.requestedDeliveryDate >= minimumDate ? order.requestedDeliveryDate : minimumDate))
+  const minimumDate = today
+  const currentDate = order.delivery_date ? String(order.delivery_date).slice(0, 10) : ''
+  const [deliveryDate, setDeliveryDate] = useState(() => initialDraft?.deliveryDate
+    || (order.requestedDeliveryDate >= minimumDate ? order.requestedDeliveryDate : (currentDate > minimumDate ? currentDate : minimumDate)))
   const [reason, setReason] = useState(initialDraft?.reason ?? order.reason ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -757,8 +756,9 @@ export function AssistantDelayOrder({ order, role, initialDraft = null, onDraftC
 
   return <form onSubmit={saveDelay} className="mt-3 rounded-xl border border-[#F0DCE5] bg-[#FFFBFD] p-3">
     <div className="grid gap-2 sm:grid-cols-2">
-      <label className="text-[11px] font-semibold text-gray-600">New delivery date
+      <label className="text-[11px] font-semibold text-gray-600">New {order.delivery_method === 'pickup' ? 'pickup' : 'delivery'} date
         <input type="date" min={minimumDate} value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} className={`${fieldClass} mt-1`} />
+        {currentDate && <span className="mt-1 block text-[11px] font-normal text-gray-500">Currently {currentDate}{deliveryDate && deliveryDate !== currentDate ? ` → ${deliveryDate}` : ''}</span>}
       </label>
       <label className="text-[11px] font-semibold text-gray-600">Reason <span className="font-normal text-gray-400">optional</span>
         <input type="text" maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Add a note, or leave blank" className={`${fieldClass} mt-1`} />
@@ -767,7 +767,7 @@ export function AssistantDelayOrder({ order, role, initialDraft = null, onDraftC
     {error && <p role="alert" className="mt-2 text-xs text-rose-700">{error}</p>}
     <div className="mt-3 flex justify-end gap-2">
       <button type="button" onClick={onCancel} disabled={saving} className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600">Cancel</button>
-      <button type="submit" disabled={saving || !deliveryDate || deliveryDate < minimumDate} className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Saving…' : 'Save delay'}</button>
+      <button type="submit" disabled={saving || !deliveryDate || deliveryDate < minimumDate} className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Saving…' : 'Save new date'}</button>
     </div>
   </form>
 }

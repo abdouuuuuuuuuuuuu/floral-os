@@ -11,6 +11,7 @@ import { useNotification } from '../context/NotificationContext'
 import { useAuth } from '../context/AuthContext'
 import { useUndo } from '../context/UndoContext'
 import { supabase } from '../lib/supabase'
+import { useRefreshWhenShown } from '../hooks/useRefreshWhenShown'
 
 const paymentStatusConfig = {
   paid: { bg: 'bg-emerald-50', text: 'text-emerald-600', label: 'Paid', dot: 'bg-emerald-500' },
@@ -520,6 +521,7 @@ function PaySupplierModal({ supplier, summary, onClose, onSave }) {
 
 function Suppliers() {
   const { suppliers, loading, addSupplier, updateSupplier, deleteSupplier, receiveStockBatch, paySupplier, updateEntry, voidEntry, getSupplierSummary, refresh } = useSuppliers()
+  useRefreshWhenShown(refresh)
   const { products } = useProducts()
   const { addNotification } = useNotification()
   const { role } = useAuth()
@@ -572,7 +574,15 @@ function Suppliers() {
   }
 
   const handleSaveStock = async ({ supplierId, items, batchNotes, receivedAt, paidNow, paymentMethod, paymentNotes }) => {
-    const result = await receiveStockBatch(supplierId, items, batchNotes, receivedAt, paidNow, paymentMethod, paymentNotes)
+    let result
+    try {
+      result = await receiveStockBatch(supplierId, items, batchNotes, receivedAt, paidNow, paymentMethod, paymentNotes)
+    } catch (error) {
+      // Stock saved, payment not: close the form (returning normally) so the
+      // same delivery cannot be saved twice, and say what is left to do.
+      if (error?.stockSaved) { addNotification(error.message, 'error'); return }
+      throw error
+    }
     if (result) addNotification('Stock delivery recorded', 'success')
   }
 

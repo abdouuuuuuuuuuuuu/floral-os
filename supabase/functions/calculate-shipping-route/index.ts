@@ -119,6 +119,55 @@ Deno.serve(async (req) => {
       existingOrder = order as Record<string, unknown>
     }
 
+
+    // Only writes when the order is still active and its destination is still
+    // the one read above, so two people editing at once cannot overwrite each other.
+    const guardedOrderUpdate = (update: Record<string, unknown>) => {
+      let saveQuery = admin.from('orders').update(update)
+        .eq('id', orderId)
+        .in('status', ['new', 'processing'])
+        .is('deleted_at', null)
+      if (existingOrder!.delivery_latitude == null) saveQuery = saveQuery.is('delivery_latitude', null)
+      else saveQuery = saveQuery.eq('delivery_latitude', existingOrder!.delivery_latitude)
+      if (existingOrder!.delivery_longitude == null) saveQuery = saveQuery.is('delivery_longitude', null)
+      else saveQuery = saveQuery.eq('delivery_longitude', existingOrder!.delivery_longitude)
+      if (existingOrder!.delivery_city == null) saveQuery = saveQuery.is('delivery_city', null)
+      else saveQuery = saveQuery.eq('delivery_city', existingOrder!.delivery_city)
+      return saveQuery.select('*').maybeSingle()
+    }
+
+    // ── Destination-only save ─────────────────────────────────────────────
+    // Changing where an order goes must not depend on the routing server being
+    // up. When the route cannot be calculated, the new destination is still
+    // saved, the old route snapshot is cleared (it described the old place),
+    // and the reason is returned as `route_error` so the app can flag the
+    // prepare-by date for follow-up. Previously the whole change was refused.
+    const saveDestinationOnly = async (routeError: string, status: number) => {
+      if (!existingOrder) return json({ error: routeError }, status)
+      const update = {
+        delivery_city: city,
+        delivery_wilaya: wilaya || null,
+        delivery_latitude: latitude,
+        delivery_longitude: longitude,
+        delivery_origin_name: null,
+        delivery_origin_latitude: null,
+        delivery_origin_longitude: null,
+        shipping_distance_km: null,
+        shipping_transit_days: null,
+        shipping_route_duration_seconds: null,
+        shipping_route_provider: null,
+        shipping_route_max_snap_distance_m: null,
+        shipping_route_calculated_at: null,
+      }
+      const { data: savedOrder, error: saveError } = await guardedOrderUpdate(update)
+      if (saveError) {
+        console.error('Could not save delivery destination:', saveError.message)
+        return json({ error: `${routeError} The new location could not be saved either.` }, 500)
+      }
+      if (!savedOrder) return json({ error: 'This order changed while it was being saved. Refresh and try again.' }, 409)
+      return json({ order: savedOrder, route_error: routeError, distance_km: null, transit_days: null })
+    }
+
     const { data: settings, error: settingsError } = await admin
       .from('settings')
       .select('shop_location_name, shop_latitude, shop_longitude, routing_service_url')
@@ -127,25 +176,25 @@ Deno.serve(async (req) => {
 
     if (settingsError) {
       console.error('Could not load shipping route settings:', settingsError.message)
-      return json({ error: 'Could not load the shop route settings' }, 500)
+      return saveDestinationOnly('Could not load the shop route settings.', 500)
     }
     const originLatitude = coordinate(settings?.shop_latitude)
     const originLongitude = coordinate(settings?.shop_longitude)
-    if (originLatitude == null || originLongitude == null) return json({ error: 'Set and save the shop location in Settings first' }, 400)
+    if (originLatitude == null || originLongitude == null) return saveDestinationOnly('Set and save the shop location in Settings first.', 400)
 
     const base = String(settings?.routing_service_url || '').trim().replace(/\/+$/, '')
-    if (!base) return json({ error: 'Add an OSRM-compatible routing service URL in Settings first' }, 400)
+    if (!base) return saveDestinationOnly('Add an OSRM-compatible routing service URL in Settings first.', 400)
     let routeBase: URL
     try {
       routeBase = new URL(base)
     } catch {
-      return json({ error: 'The configured routing service URL is invalid' }, 400)
+      return saveDestinationOnly('The configured routing service URL is invalid.', 400)
     }
     if (routeBase.protocol !== 'https:' || routeBase.username || routeBase.password || routeBase.search || routeBase.hash) {
-      return json({ error: 'The routing service URL must be a plain HTTPS service URL without embedded credentials' }, 400)
+      return saveDestinationOnly('The routing service URL must be a plain HTTPS service URL without embedded credentials.', 400)
     }
     if (isNonPublicRouteHost(routeBase.hostname)) {
-      return json({ error: 'The routing service must use a public hostname' }, 400)
+      return saveDestinationOnly('The routing service must use a public hostname.', 400)
     }
 
     const coordinatePair = (lat: number, lon: number) => `${lon},${lat}`
@@ -157,27 +206,27 @@ Deno.serve(async (req) => {
     let routeResult: Record<string, unknown>
     try {
       const response = await fetch(routeUrl, { headers: routeHeaders, signal: AbortSignal.timeout(12000) })
-      if (!response.ok) return json({ error: 'The driving-route service could not calculate this route' }, 502)
+      if (!response.ok) return saveDestinationOnly(`The driving-route service could not calculate this route (HTTP ${response.status}).`, 502)
       routeResult = await response.json()
     } catch (routeError) {
       const reason = routeError instanceof Error ? `${routeError.name}: ${routeError.message}` : String(routeError)
       console.error('Shipping route provider request failed:', { hostname: routeBase.hostname, reason })
       const lowerReason = reason.toLowerCase()
       if (lowerReason.includes('dns error') || lowerReason.includes('failed to lookup address') || lowerReason.includes('name or service not known')) {
-        return json({ error: 'The configured routing hostname could not be found. If this is a Cloudflare Quick Tunnel address, it may have changed or the tunnel may be offline. Start the tunnel, copy its current HTTPS URL into Settings → Shipping distance planning, save, and retry.' }, 502)
+        return saveDestinationOnly('The routing hostname could not be found. A Cloudflare Quick Tunnel address changes every time the tunnel restarts: copy its current HTTPS URL into Settings, Shipping distance planning, save, and retry.', 502)
       }
       if (lowerReason.includes('timed out') || lowerReason.includes('timeout')) {
-        return json({ error: 'The routing service did not respond in time. Check that Docker Desktop and the OSRM tunnel are running, then retry.' }, 502)
+        return saveDestinationOnly('The routing service did not respond in time. Check that Docker Desktop and the OSRM tunnel are running, then retry.', 502)
       }
-      return json({ error: 'The routing service could not be reached. Check that the OSRM router and Cloudflare Tunnel are running, then retry.' }, 502)
+      return saveDestinationOnly('The routing service could not be reached. Check that the OSRM router and Cloudflare Tunnel are running, then retry.', 502)
     }
 
     const routes = Array.isArray(routeResult.routes) ? routeResult.routes as Array<Record<string, unknown>> : []
     const route = routes[0]
     const distanceMeters = coordinate(route?.distance)
     const durationSeconds = coordinate(route?.duration)
-    if (routeResult.code !== 'Ok' || !Number.isFinite(distanceMeters) || distanceMeters < 0 || distanceMeters > 3_000_000) {
-      return json({ error: 'No valid driving route was found. Check the selected map points.' }, 422)
+    if (routeResult.code !== 'Ok' || distanceMeters == null || distanceMeters < 0 || distanceMeters > 3_000_000) {
+      return saveDestinationOnly('No valid driving route was found. Check the selected map points.', 422)
     }
     const distanceKm = Math.round(distanceMeters) / 1000
     const transitDays = distanceKm < 80 ? 0 : distanceKm <= 600 ? 1 : 2
@@ -188,13 +237,14 @@ Deno.serve(async (req) => {
       .map(Number)
       .filter((distance) => Number.isFinite(distance) && distance >= 0)
     if (snapDistances.length < 2) {
-      return json({ error: 'The route service could not verify both map points against its road network.' }, 422)
+      return saveDestinationOnly('The route service could not verify both map points against its road network.', 422)
     }
-    const maxSnapDistanceMeters = snapDistances.length ? Math.max(...snapDistances) : null
+    const maxSnapDistanceMeters = Math.max(...snapDistances)
     if (maxSnapDistanceMeters > MAX_ROUTE_SNAP_DISTANCE_METERS) {
-      return json({ error: 'A selected map point is more than 5 km from a drivable road. Choose a closer map match before saving this route.' }, 422)
+      return saveDestinationOnly('A selected map point is more than 5 km from a drivable road. Choose a closer map match to get a prepare-by date.', 422)
     }
     const calculatedAt = new Date().toISOString()
+    const routeDurationSeconds = durationSeconds != null && durationSeconds >= 0 ? Math.round(durationSeconds) : null
 
     if (existingOrder) {
       const update = {
@@ -207,32 +257,21 @@ Deno.serve(async (req) => {
         delivery_origin_longitude: originLongitude,
         shipping_distance_km: distanceKm,
         shipping_transit_days: transitDays,
-        shipping_route_duration_seconds: Number.isFinite(durationSeconds) && durationSeconds >= 0 ? Math.round(durationSeconds) : null,
+        shipping_route_duration_seconds: routeDurationSeconds,
         shipping_route_provider: routeBase.hostname,
         shipping_route_max_snap_distance_m: maxSnapDistanceMeters,
         shipping_route_calculated_at: calculatedAt,
       }
-      let saveQuery = admin.from('orders').update(update)
-        .eq('id', orderId)
-        .in('status', ['new', 'processing'])
-        .is('deleted_at', null)
-      if (existingOrder.delivery_latitude == null) saveQuery = saveQuery.is('delivery_latitude', null)
-      else saveQuery = saveQuery.eq('delivery_latitude', existingOrder.delivery_latitude)
-      if (existingOrder.delivery_longitude == null) saveQuery = saveQuery.is('delivery_longitude', null)
-      else saveQuery = saveQuery.eq('delivery_longitude', existingOrder.delivery_longitude)
-      if (existingOrder.delivery_city == null) saveQuery = saveQuery.is('delivery_city', null)
-      else saveQuery = saveQuery.eq('delivery_city', existingOrder.delivery_city)
-
-      const { data: savedOrder, error: saveError } = await saveQuery.select('*').maybeSingle()
+      const { data: savedOrder, error: saveError } = await guardedOrderUpdate(update)
       if (saveError) {
         console.error('Could not save calculated shipping route:', saveError.message)
         return json({ error: 'The route was calculated but could not be saved to this order' }, 500)
       }
       if (!savedOrder) return json({ error: 'This order changed while the route was being calculated. Refresh and try again.' }, 409)
-      return json({ distance_km: distanceKm, transit_days: transitDays, duration_seconds: update.shipping_route_duration_seconds, max_snap_distance_m: maxSnapDistanceMeters, order: savedOrder })
+      return json({ distance_km: distanceKm, transit_days: transitDays, duration_seconds: routeDurationSeconds, max_snap_distance_m: maxSnapDistanceMeters, order: savedOrder })
     }
 
-    return json({ distance_km: distanceKm, transit_days: transitDays, duration_seconds: Number.isFinite(durationSeconds) ? Math.round(durationSeconds) : null, max_snap_distance_m: maxSnapDistanceMeters })
+    return json({ distance_km: distanceKm, transit_days: transitDays, duration_seconds: routeDurationSeconds, max_snap_distance_m: maxSnapDistanceMeters })
   } catch (error) {
     console.error('calculate-shipping-route failed:', error)
     return json({ error: 'Route calculation failed unexpectedly' }, 500)

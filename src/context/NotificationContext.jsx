@@ -1,36 +1,33 @@
 // src/context/NotificationContext.jsx
 //
-// Two lists, not one.
+// Every alert goes to the bell (NotificationPanel). There are no floating
+// pop-ups: they covered the screen and interrupted the cashier. The bell's
+// badge turns red while an error or warning is unread, and the bell gives a
+// short shake when a new alert arrives, so nothing important is missed.
 //
-//   toasts        — transient FIFO queue. Up to four are visible at once.
-//   notifications — in-session history. Durable order alerts come from the DB.
+//   notifications — in-session alerts (newest first).
+//   orderNotifications — durable order alerts from the database.
 //
-// Previously there was a single array capped at 50, which meant mounting
-// ToastContainer would have rendered 50 stacked toasts that never went
-// away. One addNotification() call now feeds both lists.
+// `toasts` and `dismissToast` stay in the API (always empty / no-op) so older
+// call sites keep working.
 
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { friendlyMessage } from '../lib/friendlyError'
 
 const NotificationContext = createContext(null)
 
-const MAX_TOAST_QUEUE = 50
 const MAX_HISTORY = 50
-
-const DEFAULT_DURATION = {
-  success: 3000,
-  info: 4000,
-  warning: 6000,
-  error: 0, // 0 = sticky. An error the cashier didn't read is an error
-            // they'll hit again.
-}
+const NO_TOASTS = []
 
 let counter = 0
 
 export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([])
   const [orderNotifications, setOrderNotifications] = useState([])
-  const [toasts, setToasts] = useState([])
+  // Bumped on every new alert; the bell watches it to shake and to announce.
+  const [latestAlert, setLatestAlert] = useState(null)
+  const recentAlertsRef = useRef(new Map())
   const [authUserId, setAuthUserId] = useState(null)
 
   const authUserRef = useRef(null)
@@ -42,7 +39,7 @@ export function NotificationProvider({ children }) {
         authUserRef.current = nextUserId
         setNotifications([])
         setOrderNotifications([])
-        setToasts([])
+        setLatestAlert(null)
       }
       setAuthUserId(nextUserId)
     })
@@ -100,53 +97,44 @@ export function NotificationProvider({ children }) {
     }
   }, [authUserId])
 
-  const dismissToast = useCallback((id) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id))
-  }, [])
+  // Kept for older call sites; there are no toasts any more.
+  const dismissToast = useCallback(() => {}, [])
 
   /**
+   * Adds an alert to the bell.
    * @param {string} message
    * @param {'success'|'error'|'warning'|'info'} type
-   * @param {{ toast?: boolean, history?: boolean, duration?: number }} options
-   *   toast: false → history only, no popup. Use for background events
-   *   the cashier doesn't need interrupting for.
-   *   history: false → toast only, without adding another bell entry.
+   * @param {{ action?: { label: string, onClick: () => void } }} options
+   *   action: an optional button shown on the alert in the bell
+   *   (e.g. "Restart now" for an update). Older options (toast, history,
+   *   duration) are accepted and ignored.
    */
   const addNotification = useCallback(
-    (message, type = 'info', options = {}) => {
+    (rawMessage, type = 'info', options = {}) => {
+      // Problems are shown in plain words; the technical original goes to the
+      // log file (blossom.log) so it can still be diagnosed.
+      let message = rawMessage
+      if (type === 'error' || type === 'warning') {
+        message = friendlyMessage(rawMessage)
+        if (message !== String(rawMessage ?? '').trim()) console.warn('[alert] original error:', rawMessage)
+      }
+      // Collapse bursts of the same message (e.g. a retry loop): within
+      // 1.5 s, the same type + text returns the id of the alert already shown.
+      const key = `${type}|${message}`
+      const recent = recentAlertsRef.current.get(key)
+      if (recent && Date.now() - recent.at < 1500) return recent.id
+
       counter += 1
       const id = `${Date.now()}-${counter}`
-      const duration = options.duration ?? DEFAULT_DURATION[type] ?? 4000
-      const entry = { id, message, type, read: false, time: new Date(), duration }
+      recentAlertsRef.current.set(key, { id, at: Date.now() })
+      if (recentAlertsRef.current.size > 100) recentAlertsRef.current.clear()
 
-      if (options.history !== false) {
-        setNotifications((prev) => {
-          const duplicate = prev.some((notification) => notification.type === type && notification.message === message && Date.now() - new Date(notification.time).getTime() < 1500)
-          return duplicate ? prev : [entry, ...prev].slice(0, MAX_HISTORY)
-        })
-      }
-
-      if (options.toast === false) return id
-
-      setToasts((prev) => {
-        // Collapse bursts of identical messages while keeping the original
-        // toast visible and its dismissal timer intact.
-        const duplicate = prev.some((toast) => toast.type === type && toast.message === message && Date.now() - new Date(toast.time).getTime() < 1500)
-        if (duplicate) return prev
-
-        const next = [...prev, entry]
-        if (next.length <= MAX_TOAST_QUEUE) return next
-
-        // Never let a success/info burst evict an unread error toast.
-        const expendableIndex = next.findIndex((toast) => toast.type !== 'error')
-        if (expendableIndex >= 0) next.splice(expendableIndex, 1)
-        else next.pop()
-        return next
-      })
-
+      const entry = { id, message, type, read: false, time: new Date(), action: options.action || null }
+      setNotifications((prev) => [entry, ...prev].slice(0, MAX_HISTORY))
+      setLatestAlert({ id, message, type, at: Date.now() })
       return id
     },
-    [dismissToast]
+    []
   )
 
   const dismissNotification = useCallback(
@@ -161,6 +149,12 @@ export function NotificationProvider({ children }) {
     },
     [dismissToast, orderNotifications]
   )
+
+  // Removes the button from an alert once it no longer applies (an Undo that
+  // was used or has expired), so it cannot be pressed twice.
+  const clearNotificationAction = useCallback((id) => {
+    setNotifications((prev) => prev.map((n) => n.id === id && n.action ? { ...n, action: null } : n))
+  }, [])
 
   const markNotificationRead = useCallback((id) => {
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n))
@@ -185,7 +179,6 @@ export function NotificationProvider({ children }) {
   const clearAll = useCallback(() => {
     setNotifications([])
     setOrderNotifications([])
-    setToasts([])
     if (authUserRef.current) {
       void supabase.from('order_notifications').delete().eq('recipient_id', authUserRef.current)
     }
@@ -194,16 +187,21 @@ export function NotificationProvider({ children }) {
   const mergedNotifications = [...notifications, ...orderNotifications]
     .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
   const unreadCount = mergedNotifications.filter((n) => !n.read).length
+  // Unread problems turn the bell badge red.
+  const unreadAlertCount = mergedNotifications.filter((n) => !n.read && (n.type === 'error' || n.type === 'warning')).length
 
   return (
     <NotificationContext.Provider
       value={{
         notifications: mergedNotifications,
-        toasts,
+        toasts: NO_TOASTS,
         unreadCount,
+        unreadAlertCount,
+        latestAlert,
         addNotification,
         dismissToast,
         dismissNotification,
+        clearNotificationAction,
         markNotificationRead,
         markAllRead,
         clearAll,

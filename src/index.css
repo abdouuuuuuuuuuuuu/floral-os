@@ -1361,3 +1361,55 @@ html[data-theme="dark"] .shipping-route-summary__badge,
 html[data-theme="dark"] .shipping-route-summary__metric { color: #d0f4e0; background: #202f29; border-color: #315b46; }
 html[data-theme="dark"] .shipping-route-summary__title { color: #eafff3; }
 html[data-theme="dark"] .shipping-route-summary__muted { color: #b8f0d5; }
+
+/* Notification bell: a short shake when a new alert arrives (alerts no
+   longer pop up on screen). Off for people who ask for reduced motion. */
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-12deg); }
+  45% { transform: rotate(9deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(3deg); }
+}
+.bell-ring {
+  animation: bell-ring 0.9s ease-in-out;
+  transform-origin: 50% 10%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bell-ring { animation: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CART DRAG AND DROP
+   Catalog cards can be dragged into the cart; cart lines can be
+   dragged by their grip to reorder. The ghost follows the pointer
+   through a transform written straight to the node, so a drag never
+   re-renders the catalog.
+   ═══════════════════════════════════════════════════════════════ */
+body.cart-dragging,
+body.cart-dragging * { cursor: grabbing !important; }
+body.cart-dragging { user-select: none; -webkit-user-select: none; }
+
+.cart-grip { touch-action: none; }
+
+.cart-drag-ghost {
+  will-change: transform;
+  animation: cart-ghost-in 160ms var(--ease-out-quick) both;
+}
+@keyframes cart-ghost-in {
+  from { opacity: 0; scale: 0.9; }
+  to   { opacity: 1; scale: 1; }
+}
+
+.cart-drop-indicator {
+  animation: cart-indicator-in 140ms var(--ease-out-quick) both;
+}
+@keyframes cart-indicator-in {
+  from { opacity: 0; transform: scaleX(0.6); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cart-drag-ghost, .cart-drop-indicator { animation: none; }
+}

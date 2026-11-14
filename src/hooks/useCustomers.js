@@ -5,8 +5,9 @@ export function useCustomers() {
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
 
-  const fetchCustomers = useCallback(async () => {
-    setLoading(true)
+  const fetchCustomers = useCallback(async (options) => {
+    // A quiet refresh (page shown again) keeps the current list on screen.
+    if (options?.quiet !== true) setLoading(true)
     const pageSize = 500
     let offset = 0
     const data = []

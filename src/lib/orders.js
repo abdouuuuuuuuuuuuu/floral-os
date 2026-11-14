@@ -126,12 +126,20 @@ export async function createOrder({
 
   // Offline or mid-blip: queue the exact server call and let it replay when
   // the connection returns. The server still assigns the order number and
-  // stock, so nothing is faked on the device. Idempotent on the request id.
-  if (!navigator.onLine) {
+  // stock, so nothing is faked on the device. Idempotent on the request id,
+  // per user — so the queued sale remembers who made it.
+  const queueSale = async () => {
+    // getSession() reads the stored session; it works without a connection.
+    const { data: sessionData } = await supabase.auth.getSession()
     await enqueueSale({
       requestId: safeRequestId, kind: 'create_order', fn: call.fn, params: call.params,
+      actorId: sessionData?.session?.user?.id ?? null,
       meta: { total: payload.total_amount, clientName: payload.client_name, orderType },
     })
+  }
+
+  if (!navigator.onLine) {
+    await queueSale()
     return { queued: true, requestId: safeRequestId, order: null, warnings: { negative_stock: [] } }
   }
 
@@ -141,10 +149,7 @@ export async function createOrder({
     return { order: data.order, warnings: data.warnings ?? { negative_stock: [] } }
   } catch (err) {
     if (isNetworkError(err)) {
-      await enqueueSale({
-        requestId: safeRequestId, kind: 'create_order', fn: call.fn, params: call.params,
-        meta: { total: payload.total_amount, clientName: payload.client_name, orderType },
-      })
+      await queueSale()
       return { queued: true, requestId: safeRequestId, order: null, warnings: { negative_stock: [] } }
     }
     throw err instanceof Error ? err : new Error(translateOrderError(err))
@@ -178,6 +183,25 @@ export async function saveOrderEdits({ orderId, items = [], orderData = {}, addi
       resolvedOrderData = { ...orderData, customer_id: customer.customer_id, client_name: customer.full_name, client_phone: customer.phone || '' }
     }
   }
+  // A changed date goes through reschedule_order() on its own. Sending it
+  // inside the edit payload depended on the live edit_order_and_items()
+  // routing it correctly; when it did not, the edit "saved" but the date
+  // snapped back. A cleared date (pickup only) still rides in the payload.
+  const requestedDate = String(resolvedOrderData.delivery_date ?? '').slice(0, 10)
+  let pendingDate = null
+  if (requestedDate) {
+    const { data: current, error: currentError } = await supabase
+      .from('orders').select('delivery_date').eq('id', orderId).single()
+    if (currentError) throw new Error(translateOrderError(currentError))
+    const { delivery_date: _date, delay_reason: _reason, ...rest } = resolvedOrderData
+    resolvedOrderData = rest
+    if (String(current?.delivery_date ?? '').slice(0, 10) !== requestedDate) {
+      pendingDate = { date: requestedDate, reason: orderData.delay_reason || 'Rescheduled from order edit' }
+    }
+  }
+  // Date first: a rejected date (past day, closed order) stops the whole save,
+  // and it lands before any status change in the same edit.
+  if (pendingDate) await rescheduleOrder(orderId, pendingDate.date, pendingDate.reason)
   const { data, error } = await supabase.rpc('blossom_edit_order', {
     p_order_id: orderId,
     p_items: items,
@@ -186,7 +210,10 @@ export async function saveOrderEdits({ orderId, items = [], orderData = {}, addi
     p_request_id: additions.length ? requestId : null,
     p_status: status,
   })
-  if (error) throw new Error(translateOrderError(error))
+  if (error) {
+    const message = translateOrderError(error)
+    throw new Error(pendingDate ? `The new date was saved, but the other changes were not: ${message}` : message)
+  }
   return data
 }
 
@@ -278,15 +305,40 @@ export async function archiveOrder(orderId, reason = '') {
   return data
 }
 
-export async function delayOrder(orderId, deliveryDate, reason = '') {
+function isMissingFunction(error, name) {
+  const msg = String(error?.message || '')
+  return error?.code === 'PGRST202' && new RegExp(name, 'i').test(msg)
+    || new RegExp(`function public\\.${name}\\(.*\\) does not exist|could not find the function.*${name}`, 'i').test(msg)
+}
+
+/**
+ * Move an order to any day from today on: later (a delay), earlier, or a
+ * correction. Pickup orders can be rescheduled too. Falls back to the older
+ * delay_order RPC while the reschedule migration is not applied yet.
+ */
+export async function rescheduleOrder(orderId, deliveryDate, reason = '') {
   if (!orderId || !deliveryDate) throw new Error('An order and new delivery date are required.')
-  const { data, error } = await supabase.rpc('delay_order', {
+  const note = String(reason || '').trim()
+  const { data, error } = await supabase.rpc('reschedule_order', {
     p_order_id: orderId,
     p_delivery_date: deliveryDate,
-    p_reason: reason.trim() || 'Not specified',
+    p_reason: note,
   })
-  if (error) throw new Error(translateOrderError(error))
-  return data
+  if (!error) return data
+  if (!isMissingFunction(error, 'reschedule_order')) throw new Error(translateOrderError(error))
+
+  const legacy = await supabase.rpc('delay_order', {
+    p_order_id: orderId,
+    p_delivery_date: deliveryDate,
+    p_reason: note || 'Not specified',
+  })
+  if (legacy.error) throw new Error(translateOrderError(legacy.error))
+  return legacy.data
+}
+
+/** Kept for existing callers (assistant, delivery run); same behaviour as rescheduleOrder. */
+export async function delayOrder(orderId, deliveryDate, reason = '') {
+  return rescheduleOrder(orderId, deliveryDate, reason)
 }
 
 export async function recordOrderPayment({ orderId, requestId, amount, paymentMethod = 'cash', notes = '', action = 'payment' }) {

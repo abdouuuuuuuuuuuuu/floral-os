@@ -4,7 +4,7 @@ import {
   ArrowLeft, Bike, Truck, Store, CreditCard, Smartphone, DollarSign,
   Instagram, MessageCircle, Phone, Facebook, Home, Calendar, Clock,
   User, Receipt, ShoppingBag, ChevronRight,
-  Loader2, Zap
+  Loader2, Zap, Printer, MapPin, MessageSquare
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import PriceAdjuster from '../components/PriceAdjuster'
@@ -47,14 +47,37 @@ function hasUsablePhone(value) {
   return String(value || '').replace(/\D/g, '').length >= 9
 }
 
+/** True while the viewport matches; re-evaluated when it changes. */
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false))
+  useEffect(() => {
+    if (!window.matchMedia) return undefined
+    const media = window.matchMedia(query)
+    const update = () => setMatches(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [query])
+  return matches
+}
+
 function Checkout() {
   const { items, subtotal, total, clearCart } = useCartContext()
+  // Fingerprint of what is in the cart. The order is saved from the snapshot
+  // taken at the details step, while the review and payment steps show the
+  // live cart, so the two must be the same cart.
+  const cartKey = JSON.stringify(items.map((item) => [item.id, item.quantity, item.price, item.totalPrice]))
   const { addNotification } = useNotification()
   const { settings: shopSettings } = useSettings()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const isQuickSale = searchParams.get('mode') === 'quick_sale'
-  const [step, setStep] = useState(2)
+  // Steps: 2 = details, 3 = payment, 4 = review (phones only). A quick sale
+  // has no details step: it goes cart → pay → done.
+  const [step, setStep] = useState(isQuickSale ? 3 : 2)
+  // On a wide screen the summary panel is the review, so the payment step
+  // confirms and saves in one go. Phones keep a full-page review step.
+  const confirmsFromPayment = useMediaQuery('(min-width: 1280px)')
 
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [phoneLookupStatus, setPhoneLookupStatus] = useState('idle')
@@ -122,7 +145,8 @@ function Checkout() {
       if (!raw) return
       const draft = JSON.parse(raw)
       if (draft.mode !== (isQuickSale ? 'quick_sale' : 'standard')) return
-      setStep([2, 3, 4].includes(draft.step) ? draft.step : 2)
+      const restoredStep = [2, 3, 4].includes(draft.step) ? draft.step : 2
+      setStep(isQuickSale && restoredStep === 2 ? 3 : restoredStep)
       setSelectedCustomer(draft.selectedCustomer || null)
       setClientName(draft.clientName || '')
       setClientPhone(draft.clientPhone || '')
@@ -202,9 +226,60 @@ function Checkout() {
     }
   }, [clientPhone, selectedCustomer])
 
+  // Everything the server needs, from the current form state. Scheduled
+  // orders snapshot it at the details step; a quick sale builds it live.
+  const buildOrderPayload = () => ({
+    customerId: selectedCustomer?.customer_id || null,
+    clientName: selectedCustomer?.full_name || clientName.trim() || (isQuickSale ? 'Walk-in Customer' : ''),
+    clientPhone: selectedCustomer?.phone || clientPhone.trim() || null,
+    deliveryDate: isQuickSale ? '' : deliveryDate,
+    deliveryTime: isQuickSale ? '' : deliveryTime,
+    deliveryMethod: isQuickSale ? 'pickup' : deliveryMethod,
+    deliveryFeeAmount: shouldCollectDeliveryFee ? Math.round(Number(deliveryFeeAmount)) : 0,
+    deliveryFeeCollected: shouldCollectDeliveryFee,
+    deliveryFeePaymentMethod,
+    deliveryCity: !isQuickSale && deliveryMethod !== 'pickup' ? (selectedDeliveryPlace?.label || deliveryPlaceQuery.trim()) : '',
+    deliveryWilaya: !isQuickSale && deliveryMethod !== 'pickup' ? (selectedDeliveryPlace?.wilaya || '') : '',
+    deliveryLatitude: !isQuickSale && deliveryMethod !== 'pickup' ? selectedDeliveryPlace?.latitude ?? null : null,
+    deliveryLongitude: !isQuickSale && deliveryMethod !== 'pickup' ? selectedDeliveryPlace?.longitude ?? null : null,
+    // This is only a checkout preview; the server recalculates the route
+    // after order creation and is the only writer of saved route metrics.
+    shippingDistanceKm: null,
+    paymentMethod,
+    clientSource,
+    notes,
+    items: [...items],
+    subtotal,
+    total: adjustedTotal,
+    priceAdjustment: effectivePriceAdjustment,
+    status: isQuickSale ? 'done' : 'new',
+    orderType: isQuickSale ? 'quick_sale' : 'standard',
+    cartKey,
+  })
+  const livePayload = isQuickSale ? buildOrderPayload() : orderPayload
+
+  const switchSaleType = (quick) => {
+    if (isSubmitting || quick === isQuickSale) return
+    setPaymentData(null)
+    setOrderPayload(null)
+    setFieldErrors({})
+    if (quick) {
+      setSearchParams({ mode: 'quick_sale' }, { replace: true })
+      setDeliveryMethod('pickup')
+      setCollectDeliveryFee(false)
+      setDeliveryFeeAmount('')
+      setDeliveryFeePaymentMethod('cash')
+      setStep(3)
+    } else {
+      setSearchParams({}, { replace: true })
+      setDeliveryMethod('motorcycle')
+      setStep(2)
+    }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (isSubmitting || items.length === 0) return
+    if (isSubmitting || items.length === 0 || isQuickSale) return
 
     const errors = {}
     if (!isQuickSale && !selectedCustomer) {
@@ -238,36 +313,33 @@ function Checkout() {
       return
     }
 
-    setOrderPayload({
-      customerId: selectedCustomer?.customer_id || null,
-      clientName: selectedCustomer?.full_name || clientName.trim() || (isQuickSale ? 'Walk-in Customer' : ''),
-      clientPhone: selectedCustomer?.phone || clientPhone.trim() || null,
-      deliveryDate: isQuickSale ? '' : deliveryDate,
-      deliveryTime: isQuickSale ? '' : deliveryTime,
-      deliveryMethod: isQuickSale ? 'pickup' : deliveryMethod,
-      deliveryFeeAmount: shouldCollectDeliveryFee ? Math.round(Number(deliveryFeeAmount)) : 0,
-      deliveryFeeCollected: shouldCollectDeliveryFee,
-      deliveryFeePaymentMethod,
-      deliveryCity: !isQuickSale && deliveryMethod !== 'pickup' ? (selectedDeliveryPlace?.label || deliveryPlaceQuery.trim()) : '',
-      deliveryWilaya: !isQuickSale && deliveryMethod !== 'pickup' ? (selectedDeliveryPlace?.wilaya || '') : '',
-      deliveryLatitude: !isQuickSale && deliveryMethod !== 'pickup' ? selectedDeliveryPlace?.latitude ?? null : null,
-      deliveryLongitude: !isQuickSale && deliveryMethod !== 'pickup' ? selectedDeliveryPlace?.longitude ?? null : null,
-      // This is only a checkout preview; the server recalculates the route
-      // after order creation and is the only writer of saved route metrics.
-      shippingDistanceKm: null,
-      paymentMethod,
-      clientSource,
-      notes,
-      items: [...items],
-      subtotal,
-      total: adjustedTotal,
-      priceAdjustment: effectivePriceAdjustment,
-      status: isQuickSale ? 'done' : 'new',
-      orderType: isQuickSale ? 'quick_sale' : 'standard',
-    })
+    setOrderPayload(buildOrderPayload())
     setPaymentData(null)
     setStep(3)
   }
+
+  // The cart was changed after the details step (sidebar → Products or Cart,
+  // then back here, or a restored draft from before). Saving now would record
+  // the OLD items and total while the screen shows and charges the new ones.
+  // Go back to the details step so the order is rebuilt from the cart shown.
+  useEffect(() => {
+    if (isSubmitting || items.length === 0) return
+    if (isQuickSale) {
+      // The quick-sale payload is built live; only an entered payment can go stale.
+      if (paymentData && paymentData.cartKey && paymentData.cartKey !== cartKey) {
+        setPaymentData(null)
+        if (step === 4) setStep(3)
+        addNotification('The cart changed. Take the payment again.', 'warning')
+      }
+      return
+    }
+    if (!orderPayload || step === 2) return
+    if (orderPayload.cartKey === cartKey) return
+    setOrderPayload(null)
+    setPaymentData(null)
+    setStep(2)
+    addNotification('The cart changed. Check the order details and take payment again.', 'warning')
+  }, [orderPayload, paymentData, cartKey, step, isSubmitting, items.length, isQuickSale, addNotification])
 
   const calculateSelectedRoute = useCallback(async (place = selectedDeliveryPlace) => {
     if (!place) {
@@ -320,11 +392,22 @@ function Checkout() {
     const due = Math.max(0, Number(data.amountDue || 0))
     if (due > 0 && !selectedCustomer && !hasUsablePhone(clientPhone)) {
       setFieldErrors({ clientPhone: 'Add a valid phone number to link the unpaid balance to the right customer.' })
-      setStep(2)
-      requestAnimationFrame(() => document.getElementById('checkout-client-phone')?.focus())
+      if (!isQuickSale) setStep(2)
+      requestAnimationFrame(() => {
+        const field = document.getElementById('checkout-client-phone')
+        field?.focus()
+        field?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+      })
       return
     }
-    setPaymentData(data)
+    const payment = { ...data, cartKey }
+    setPaymentData(payment)
+    // Wide screen: the summary panel has been showing the full order all
+    // along, so confirming the payment saves the order right away.
+    if (confirmsFromPayment) {
+      await commitOrder(payment)
+      return
+    }
     setStep(4)
   }
 
@@ -344,24 +427,36 @@ function Checkout() {
     navigate('/cart')
   }
 
-  const commitOrder = async () => {
-    if (!orderPayload || !paymentData || isSubmitting) return
+  // While a sale is being saved, ask before the window closes (app quit,
+  // "Restart now" for an update, Alt+F4). Closing mid-save leaves the sale's
+  // outcome unknown to the cashier. The desktop app shows the question.
+  useEffect(() => {
+    if (!isSubmitting) return undefined
+    const holdOpen = (event) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', holdOpen)
+    return () => window.removeEventListener('beforeunload', holdOpen)
+  }, [isSubmitting])
+
+  const commitOrder = async (payment = paymentData) => {
+    const payload = isQuickSale ? buildOrderPayload() : orderPayload
+    if (!payload || !payment || isSubmitting) return
     setIsSubmitting(true)
     try {
       const orderInput = {
-        ...orderPayload,
+        ...payload,
         paymentMethod,
-        loyaltyPointsToRedeem: paymentData.loyaltyPointsToRedeem,
-        loyaltyCardCode: paymentData.loyaltyCardCode,
-        loyaltyOverrideReason: paymentData.loyaltyOverrideReason,
-        paymentStatus: paymentData.paymentStatus,
-        amountPaid: paymentData.amountPaid,
-        amountDue: paymentData.amountDue,
-        paymentNotes: paymentData.notes,
-        deliveryFeeAmount: orderPayload.deliveryFeeAmount || 0,
-        deliveryFeeCollected: Boolean(orderPayload.deliveryFeeCollected),
-        deliveryFeePaymentMethod: orderPayload.deliveryFeePaymentMethod || deliveryFeePaymentMethod || paymentMethod,
+        loyaltyPointsToRedeem: payment.loyaltyPointsToRedeem,
+        loyaltyCardCode: payment.loyaltyCardCode,
+        loyaltyOverrideReason: payment.loyaltyOverrideReason,
+        paymentStatus: payment.paymentStatus,
+        amountPaid: payment.amountPaid,
+        amountDue: payment.amountDue,
+        paymentNotes: payment.notes,
+        deliveryFeeAmount: payload.deliveryFeeAmount || 0,
+        deliveryFeeCollected: Boolean(payload.deliveryFeeCollected),
+        deliveryFeePaymentMethod: payload.deliveryFeePaymentMethod || deliveryFeePaymentMethod || paymentMethod,
       }
+      delete orderInput.cartKey
 
       // The server rejects a reused request id with different details. If an
       // earlier attempt failed and the cart has changed since, check whether
@@ -398,6 +493,10 @@ function Checkout() {
       // order (and its receipt) appear once it syncs.
       if (createResult.queued) {
         try {
+          // The draft holds this sale's request id. Left behind, the next
+          // customer's checkout restored it and reused the id, so the server
+          // treated the new sale as this one, already saved.
+          sessionStorage.removeItem('blossom-checkout-draft')
           sessionStorage.removeItem('blossom-checkout-request-id')
           sessionStorage.removeItem('blossom-checkout-attempt')
         } catch { /* ignore */ }
@@ -422,6 +521,8 @@ function Checkout() {
             },
           })
           if (routeError || routeData?.error) throw new Error(routeError ? await getFunctionErrorMessage(routeError, 'Route calculation failed.') : routeData.error)
+          // Destination saved, but the routing service could not give a date.
+          if (routeData?.route_error) throw new Error(routeData.route_error)
         } catch (error) {
           routeNeedsFollowUp = true
           const routeMessage = error.message || 'Route calculation failed.'
@@ -450,6 +551,13 @@ function Checkout() {
         sessionStorage.removeItem('blossom-checkout-request-id')
         sessionStorage.removeItem('blossom-checkout-attempt')
       } catch { /* ignore */ }
+      // A quick sale prints its receipt straight away: the customer is at
+      // the counter. A print failure never undoes the saved sale.
+      if (isQuickSale) {
+        addNotification(`Sale #${order.order_number} saved · printing the receipt`, 'success')
+        navigate(`/orders/receipt?id=${order.id}&autoPrint=1`, { replace: true, state: { savedOrder: true } })
+        return
+      }
       navigate(`/orders/receipt?id=${order.id}`, { replace: true, state: { routeFollowUp: routeNeedsFollowUp, savedOrder: true } })
     } catch (err) {
       console.error('Order creation failed:', err)
@@ -499,52 +607,37 @@ function Checkout() {
         {/* LEFT: Form */}
         <div className="flex-1 min-w-0">
           <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-            <div className="mb-4 flex items-center gap-2 sm:gap-3">
-              {['Details', 'Payment', 'Review'].map((label, index) => {
-                const number = index + 2
-                const active = number === step
-                const complete = number < step
-                return <div key={label} className="flex min-w-0 flex-1 items-center gap-2">
-                <span aria-current={active ? 'step' : undefined} className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-bold transition-colors ${active ? 'bg-primary text-white ring-4 ring-primary/10' : complete ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{complete && !active ? '✓' : number}</span>
-                  <span className={`hidden truncate text-xs font-semibold sm:block ${active ? 'text-slate-900' : complete ? 'text-emerald-800' : 'text-slate-500'}`}>{label}</span>
-                  {index < 2 && <span className={`h-px min-w-2 flex-1 ${complete ? 'bg-emerald-300' : 'bg-slate-200'}`} />}
-                </div>
+            <ol className="mb-4 flex items-center gap-2 sm:gap-3" aria-label="Checkout steps">
+              {[
+                { key: 'cart', label: 'Cart', done: true, onClick: returnToCart },
+                ...(isQuickSale ? [] : [{ key: 'details', label: 'Details', step: 2 }]),
+                { key: 'pay', label: 'Pay', step: 3 },
+                // Phones review on a page of their own; wide screens review in the summary panel.
+                { key: 'review', label: 'Review', step: 4, phoneOnly: true },
+              ].map((item, index, all) => {
+                const active = item.step === step
+                const complete = item.done || (item.step != null && item.step < step)
+                const number = index
+                const canJump = complete && !isSubmitting && (item.onClick || item.step)
+                const circle = <span aria-current={active ? 'step' : undefined} className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-bold transition-colors ${active ? 'bg-primary text-white ring-4 ring-primary/10' : complete ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{complete && !active ? '✓' : number}</span>
+                const label = <span className={`hidden truncate text-xs font-semibold sm:block ${active ? 'text-slate-900' : complete ? 'text-emerald-800' : 'text-slate-500'}`}>{item.label}</span>
+                return <li key={item.key} className={`flex min-w-0 flex-1 items-center gap-2 ${item.phoneOnly ? 'xl:hidden' : ''}`}>
+                  {canJump
+                    ? <button type="button" onClick={() => (item.onClick ? item.onClick() : setStep(item.step))} className="flex min-w-0 items-center gap-2 rounded-full pr-2 transition hover:bg-slate-50" title={item.key === 'cart' ? 'Back to the cart' : `Back to ${item.label.toLowerCase()}`}>{circle}{label}</button>
+                    : <>{circle}{label}</>}
+                  {index < all.length - 1 && <span className={`h-px min-w-2 flex-1 ${item.phoneOnly ? '' : ''} ${complete ? 'bg-emerald-300' : 'bg-slate-200'} ${all[index + 1]?.phoneOnly ? 'xl:hidden' : ''}`} />}
+                </li>
               })}
-            </div>
-            <p className="text-sm font-semibold text-slate-900">{step === 2 ? (isQuickSale ? 'Customer details' : 'Customer & fulfillment') : step === 3 ? 'Payment' : 'Review and confirm'}</p>
-            <p className="mt-1 text-xs text-slate-500">{step === 2 ? (isQuickSale ? 'Link a customer if you want this sale and any credit on their profile.' : 'Find the customer first, then add delivery details.') : step === 3 ? 'Choose how much the customer is paying now.' : 'Check the order details before saving.'}</p>
-          </div>
-          <div className={`panel mb-5 p-4 sm:p-5 ${step === 2 ? '' : 'hidden'}`}>
-            <div className="flex items-start justify-between gap-4 mb-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Sale type</p>
-                <p className="mt-1 text-xs text-slate-500">Choose a scheduled order or a quick walk-in sale.</p>
+            </ol>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-900">{step === 2 ? 'Customer & fulfillment' : step === 3 ? (isQuickSale ? 'Take payment' : 'Payment') : 'Review and confirm'}</p>
+                <p className="mt-1 text-xs text-slate-500">{step === 2 ? 'Find the customer first, then add delivery details.' : step === 3 ? (confirmsFromPayment ? 'Check the summary on the right, enter the amount, and confirm. The order is saved and the receipt opens.' : 'Choose how much the customer is paying now.') : 'Check the order details before saving.'}</p>
               </div>
-              {isQuickSale && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-3 py-1 text-xs font-semibold">
-                  <Zap size={13} /> Quick sale
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <button
-                type="button"
-                aria-pressed={!isQuickSale}
-                onClick={() => { setSearchParams({}, { replace: true }); setDeliveryMethod('motorcycle'); setPaymentData(null) }}
-                className={`rounded-xl border p-3.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${!isQuickSale ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-slate-200 hover:border-slate-300'}`}
-              >
-                <span className="block text-sm font-semibold text-slate-800">Order</span>
-                <span className="block text-xs text-slate-500 mt-1">Customer and delivery details</span>
-              </button>
-              <button
-                type="button"
-                aria-pressed={isQuickSale}
-                onClick={() => { setSearchParams({ mode: 'quick_sale' }, { replace: true }); setDeliveryMethod('pickup'); setCollectDeliveryFee(false); setDeliveryFeeAmount(''); setDeliveryFeePaymentMethod('cash'); setPaymentData(null) }}
-                className={`rounded-xl border p-3.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300 ${isQuickSale ? 'border-fuchsia-400 bg-fuchsia-50 ring-1 ring-fuchsia-200' : 'border-slate-200 hover:border-slate-300'}`}
-              >
-                <span className="block text-sm font-semibold text-slate-800">Quick sale</span>
-                <span className="block text-xs text-slate-500 mt-1">Walk-in, pickup now, no delivery setup</span>
-              </button>
+              {step !== 4 && <p className="flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-slate-50 py-1 pl-3 pr-1 text-xs text-slate-700">
+                {isQuickSale ? <span className="inline-flex items-center gap-1 font-semibold text-fuchsia-700"><Zap size={12} /> Quick sale</span> : <span className="font-semibold">Scheduled order</span>}
+                <button type="button" onClick={() => switchSaleType(!isQuickSale)} disabled={isSubmitting} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-primary shadow-sm ring-1 ring-slate-200 transition hover:bg-primary-subtle disabled:opacity-50">Switch to {isQuickSale ? 'order' : 'quick sale'}</button>
+              </p>}
             </div>
           </div>
           <details className="panel mb-5 overflow-hidden xl:hidden">
@@ -554,20 +647,21 @@ function Checkout() {
             </summary>
             <div className="space-y-2 border-t border-slate-100 px-4 py-3">
               {items.map((item) => <div key={item.id} className="flex justify-between gap-3 text-xs"><span className="min-w-0 truncate text-slate-600">{item.quantity} × {item.name}</span><span className="shrink-0 font-medium tabular-nums text-slate-800">{item.totalPrice.toLocaleString('fr-FR')} DA</span></div>)}
-              {step === 2 && <div className="border-t border-dashed border-slate-200 pt-2"><label className="mb-1.5 block text-xs font-medium text-slate-600">Adjust order price</label><PriceAdjuster value={effectivePriceAdjustment} onChange={applyPriceAdjustment} currency="DA" step={10} /><p className="mt-1 text-[11px] text-slate-500">Discounts cannot exceed the flower order value.</p></div>}
+              {(step === 2 || (isQuickSale && step === 3)) && <div className="border-t border-dashed border-slate-200 pt-2"><label className="mb-1.5 block text-xs font-medium text-slate-600">Adjust order price</label><PriceAdjuster value={effectivePriceAdjustment} onChange={applyPriceAdjustment} currency="DA" step={10} /><p className="mt-1 text-[11px] text-slate-500">Discounts cannot exceed the flower order value.</p></div>}
               <div className="flex justify-between border-t border-dashed border-slate-200 pt-2 text-xs"><span className="text-slate-600">Flower order</span><strong>{finalTotal.toLocaleString('fr-FR')} DA</strong></div>
               {checkoutDeliveryFee > 0 && <div className="flex justify-between text-xs text-blue-900"><span>Transport fee · collected separately</span><strong>+{checkoutDeliveryFee.toLocaleString('fr-FR')} DA</strong></div>}
             </div>
           </details>
-          <form noValidate onSubmit={handleSubmit} className="space-y-4">
-            <div className={step === 2 ? 'space-y-5' : 'hidden'}>
+          <form noValidate onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {/* A quick sale shows the (optional) customer under the payment panel. */}
+            <div className={step === 2 || (isQuickSale && step === 3) ? 'space-y-5' : 'hidden'}>
             {/* Client Info */}
             <section className="panel rounded-2xl p-4 sm:p-5" aria-labelledby="checkout-customer-heading">
               <div className="mb-4 flex items-start gap-3">
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><User size={18} /></span>
                 <div className="min-w-0">
-                  <h2 id="checkout-customer-heading" className="text-sm font-semibold text-slate-900">{isQuickSale ? 'Customer' : 'Who is this order for?'}</h2>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-500">Search by phone or name. The phone links repeat orders and any outstanding credit to the customer profile.</p>
+                  <h2 id="checkout-customer-heading" className="text-sm font-semibold text-slate-900">{isQuickSale ? <>Customer <span className="font-normal text-slate-400">· optional</span></> : 'Who is this order for?'}</h2>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-500">{isQuickSale ? 'Link a profile to earn petals or to leave a balance on it. Walk-ins need nothing here.' : 'Search by phone or name. The phone links repeat orders and any outstanding credit to the customer profile.'}</p>
                 </div>
               </div>
 
@@ -784,7 +878,7 @@ function Checkout() {
             </div>
 
             {/* Payment method */}
-            <div className={step === 3 ? 'space-y-4' : 'hidden'}>
+            <div className={step === 3 ? `space-y-4 ${isQuickSale ? 'order-first' : ''}` : 'hidden'}>
             <div className="panel p-5">
               <h3 className="text-sm font-semibold text-slate-900 mb-4">Payment</h3>
 
@@ -817,7 +911,7 @@ function Checkout() {
               {usdExchangeRate <= 0 && (
                 <p className="mt-3 text-xs text-amber-700">USDT tender is unavailable until an owner sets the exchange rate in Settings.</p>
               )}
-              {orderPayload?.deliveryFeeCollected && <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-3 text-sm text-blue-950"><span><strong className="block">Transport fee recorded separately</strong><span className="text-xs text-blue-800">{deliveryFeePaymentMethod.toUpperCase()} · not included in the flower payment below.</span></span><strong className="shrink-0 tabular-nums">{Number(orderPayload.deliveryFeeAmount).toLocaleString('fr-FR')} DA</strong></div>}
+              {livePayload?.deliveryFeeCollected && <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-3 text-sm text-blue-950"><span><strong className="block">Transport fee recorded separately</strong><span className="text-xs text-blue-800">{deliveryFeePaymentMethod.toUpperCase()} · not included in the flower payment below.</span></span><strong className="shrink-0 tabular-nums">{Number(livePayload.deliveryFeeAmount).toLocaleString('fr-FR')} DA</strong></div>}
               {paymentData && <div className="mt-4 rounded-xl bg-sage/50 p-3 text-sm">
                 <div className="flex justify-between"><span>Amount received</span><strong>{Number(paymentData.amountPaid || 0).toLocaleString('fr-FR')} DA</strong></div>
                 <div className="mt-1 flex justify-between"><span>Status</span><strong>{paymentData.paymentStatus === 'unpaid' ? 'Pay later' : paymentData.paymentStatus === 'partial' ? 'Partial payment' : 'Paid'}</strong></div>
@@ -830,14 +924,16 @@ function Checkout() {
               exchangeRate={usdExchangeRate}
               customer={selectedCustomer}
               onConfirm={handlePaymentConfirm}
-              onCancel={() => { setPaymentData(null); setOrderPayload(null); setStep(2) }}
+              onCancel={() => { setPaymentData(null); setOrderPayload(null); if (isQuickSale) returnToCart(); else setStep(2) }}
               isSubmitting={isSubmitting}
+              confirmLabel={confirmsFromPayment ? (isQuickSale ? 'Confirm & print' : 'Confirm & save order') : null}
+              cancelLabel={isQuickSale ? 'Back to cart' : 'Back to details'}
             />}
             </div>
             </div>
 
             {/* Source */}
-            <div className={`grid gap-4 lg:grid-cols-2 ${step === 2 ? '' : 'hidden'}`}>
+            <div className={`grid gap-4 lg:grid-cols-2 ${step === 2 || (isQuickSale && step === 3) ? '' : 'hidden'}`}>
             <section className="panel p-5">
               <h3 className="text-sm font-semibold text-slate-900 mb-4">{isQuickSale ? 'Sale Source' : 'Client Source'}</h3>
 
@@ -882,8 +978,8 @@ function Checkout() {
             {step === 4 && <section className="panel space-y-4 p-5" aria-labelledby="review-title">
               <h2 id="review-title" className="text-base font-semibold text-slate-900">Order review</h2>
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Customer</p><p className="mt-1 font-semibold text-slate-900">{orderPayload?.clientName}</p><p className="text-sm text-slate-600">{orderPayload?.clientPhone || 'Walk-in'}</p></div>
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Fulfillment</p><p className="mt-1 font-semibold text-slate-900">{isQuickSale ? 'Quick sale · Pickup' : deliveryMethod === 'pickup' ? 'Shop pickup' : `${deliveryMethod.toUpperCase()} · ${orderPayload?.deliveryCity || 'Destination not set'}`}</p>{!isQuickSale && <p className="text-sm text-slate-600">{deliveryDate || 'No delivery date'} {deliveryTime && `· ${deliveryTime}`}</p>}</div>
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Customer</p><p className="mt-1 font-semibold text-slate-900">{livePayload?.clientName}</p><p className="text-sm text-slate-600">{livePayload?.clientPhone || 'Walk-in'}</p></div>
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Fulfillment</p><p className="mt-1 font-semibold text-slate-900">{isQuickSale ? 'Quick sale · Pickup' : deliveryMethod === 'pickup' ? 'Shop pickup' : `${deliveryMethod.toUpperCase()} · ${livePayload?.deliveryCity || 'Destination not set'}`}</p>{!isQuickSale && <p className="text-sm text-slate-600">{deliveryDate || 'No delivery date'} {deliveryTime && `· ${deliveryTime}`}</p>}</div>
               </div>
               <div className="divide-y divide-slate-100 rounded-xl border border-slate-100">
                 {items.map((item) => <div key={item.id} className="flex justify-between gap-4 px-3 py-2.5 text-sm"><span className="min-w-0 text-slate-700"><span className="block">{item.quantity} × {item.name}</span><span className="text-xs text-slate-500">{Number(item.price || 0).toLocaleString('fr-FR')} DA each</span></span><span className="shrink-0 font-medium text-slate-900">{item.totalPrice.toLocaleString('fr-FR')} DA</span></div>)}
@@ -892,7 +988,7 @@ function Checkout() {
                 {effectivePriceAdjustment !== 0 && <div className="mb-1 flex justify-between"><span>{effectivePriceAdjustment < 0 ? 'Discount' : 'Extra charge'}</span><strong>{effectivePriceAdjustment > 0 ? '+' : ''}{effectivePriceAdjustment.toLocaleString('fr-FR')} DA</strong></div>}
                 {loyaltyDiscount > 0 && <div className="mb-1 flex justify-between text-emerald-800"><span>Petal reward</span><strong>−{loyaltyDiscount.toLocaleString('fr-FR')} DA</strong></div>}
                 <div className="flex justify-between"><span>Flower order</span><strong>{finalTotal.toLocaleString('fr-FR')} DA</strong></div>
-                {checkoutDeliveryFee > 0 && <div className="mt-1 flex justify-between text-blue-900"><span>Transport fee · {orderPayload?.deliveryFeePaymentMethod?.toUpperCase() || deliveryFeePaymentMethod.toUpperCase()}</span><strong>+{checkoutDeliveryFee.toLocaleString('fr-FR')} DA</strong></div>}
+                {checkoutDeliveryFee > 0 && <div className="mt-1 flex justify-between text-blue-900"><span>Transport fee · {livePayload?.deliveryFeePaymentMethod?.toUpperCase() || deliveryFeePaymentMethod.toUpperCase()}</span><strong>+{checkoutDeliveryFee.toLocaleString('fr-FR')} DA</strong></div>}
                 <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-base font-bold text-slate-950"><span>Total customer charge</span><strong>{customerChargeTotal.toLocaleString('fr-FR')} DA</strong></div>
                 <div className="mt-1 flex justify-between"><span>Payment</span><strong>{paymentMethod.toUpperCase()} · {paymentData?.paymentStatus === 'unpaid' ? 'Pay later' : paymentData?.paymentStatus === 'partial' ? 'Partial payment' : 'Paid'} · {paymentData?.amountPaid?.toLocaleString('fr-FR') || '0'} DA</strong></div>
                 {Number(paymentData?.amountDue) > 0 && <div className="mt-1 flex justify-between text-amber-800"><span>Remaining</span><strong>{Number(paymentData.amountDue).toLocaleString('fr-FR')} DA</strong></div>}
@@ -905,7 +1001,7 @@ function Checkout() {
             {step !== 3 && <div className="sticky bottom-2 z-20 flex gap-3 rounded-xl border border-slate-100 bg-white/95 p-2 pb-[max(.5rem,env(safe-area-inset-bottom))] shadow-lg backdrop-blur">
               {step > 2 && <button type="button" onClick={() => setStep(step - 1)} className="btn btn-secondary min-h-12 flex-1">Back</button>}
               {step === 2 && <button type="submit" disabled={isSubmitting} className="btn btn-primary min-h-12 flex-1">Continue · {customerChargeTotal.toLocaleString('fr-FR')} DA <ChevronRight size={16} /></button>}
-              {step === 4 && <button type="button" onClick={commitOrder} disabled={isSubmitting} className="btn btn-primary min-h-12 flex-1">{isSubmitting ? <><Loader2 size={16} className="animate-spin" /> Saving order…</> : <>Create order & receipt <Receipt size={16} /></>}</button>}
+              {step === 4 && <button type="button" onClick={() => commitOrder()} disabled={isSubmitting} className="btn btn-primary min-h-12 flex-1">{isSubmitting ? <><Loader2 size={16} className="animate-spin" /> Saving order…</> : isQuickSale ? <>Confirm & print <Printer size={16} /></> : <>Create order & receipt <Receipt size={16} /></>}</button>}
             </div>}
           </form>
         </div>
@@ -919,6 +1015,35 @@ function Checkout() {
                 {isQuickSale ? 'Quick Sale Summary' : 'Order Summary'}
               </h2>
               <p className="text-xs text-slate-400 mt-1">{items.length} item{items.length !== 1 ? 's' : ''} in cart</p>
+            </div>
+
+            {/* Live review: the summary is what gets saved when the payment is confirmed. */}
+            <div className="space-y-2 border-b border-slate-100 px-6 py-4 text-sm" aria-label="Order review">
+              <div className="flex items-start gap-2.5">
+                <User size={15} className="mt-0.5 shrink-0 text-slate-400" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-800">{livePayload?.clientName || (selectedCustomer?.full_name || clientName.trim()) || (isQuickSale ? 'Walk-in customer' : <span className="font-normal text-slate-400">Customer not set</span>)}</p>
+                  <p className="text-2xs text-slate-500">{selectedCustomer?.phone || clientPhone.trim() || (selectedCustomer ? 'Linked profile' : 'No phone')}{selectedCustomer ? ' · profile linked' : ''}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5">
+                {isQuickSale || deliveryMethod === 'pickup' ? <Store size={15} className="mt-0.5 shrink-0 text-slate-400" /> : <MapPin size={15} className="mt-0.5 shrink-0 text-slate-400" />}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-800">{isQuickSale ? 'Quick sale · pickup now' : deliveryMethod === 'pickup' ? 'Shop pickup' : `${deliveryMethod === 'dhd' ? 'DHD' : 'Motorcycle'} · ${selectedDeliveryPlace?.label || deliveryPlaceQuery.trim() || 'destination not set'}`}</p>
+                  {!isQuickSale && <p className="text-2xs text-slate-500">{deliveryDate ? formatBusinessDate(deliveryDate, 'en-GB') : (deliveryMethod === 'pickup' ? 'No date' : 'Date not set')}{deliveryTime ? ` · ${deliveryTime}` : ''}{suggestedShipDate && deliveryMethod !== 'pickup' ? ` · prepare by ${formatBusinessDate(suggestedShipDate, 'en-GB')}` : ''}</p>}
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <CreditCard size={15} className="mt-0.5 shrink-0 text-slate-400" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-slate-800">{paymentMethods.find((method) => method.id === paymentMethod)?.label || paymentMethod}{paymentData ? ` · ${paymentData.paymentStatus === 'unpaid' ? 'pay later' : paymentData.paymentStatus === 'partial' ? 'partial' : 'paid'}` : ''}</p>
+                  <p className="text-2xs text-slate-500">Source: {clientSources.find((source) => source.id === clientSource)?.label || clientSource}{paymentData && Number(paymentData.amountDue) > 0 ? ` · ${Number(paymentData.amountDue).toLocaleString('fr-FR')} DA remaining` : ''}</p>
+                </div>
+              </div>
+              {notes.trim() && <div className="flex items-start gap-2.5">
+                <MessageSquare size={15} className="mt-0.5 shrink-0 text-slate-400" />
+                <p className="line-clamp-2 text-2xs text-slate-600">{notes.trim()}</p>
+              </div>}
             </div>
 
             <div className="px-6 py-4 max-h-[320px] overflow-y-auto space-y-3">
@@ -951,7 +1076,7 @@ function Checkout() {
                 </div>
               )}
 
-              <div className={`pt-2 ${step === 2 ? '' : 'hidden'}`}>
+              <div className={`pt-2 ${step === 2 || (isQuickSale && step === 3) ? '' : 'hidden'}`}>
                 <label className="block text-2xs font-medium text-slate-500 mb-1.5">Adjust Price</label>
                 <PriceAdjuster
                   value={effectivePriceAdjustment}

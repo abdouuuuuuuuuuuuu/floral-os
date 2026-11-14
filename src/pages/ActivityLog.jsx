@@ -9,6 +9,7 @@ import DashboardLayout from '../components/layout/DashboardLayout'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { localDate } from '../lib/businessDate.js'
+import { useRefreshWhenShown } from '../hooks/useRefreshWhenShown'
 
 const TZ = 'Africa/Algiers'
 const money = (value) => Number(value || 0).toLocaleString('fr-FR')
@@ -203,8 +204,9 @@ function ActivityLog() {
       .then(({ data }) => setStaff(data || []))
   }, [role])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (options) => {
+    // A quiet refresh (page shown again) keeps the current list on screen.
+    if (options?.quiet !== true) setLoading(true)
     setError('')
     try {
       const { from, to } = dayBounds(fromDay, toDay)
@@ -226,6 +228,7 @@ function ActivityLog() {
   }, [fromDay, toDay, actor, kind])
 
   useEffect(() => { if (role === 'owner') load() }, [role, load])
+  useRefreshWhenShown(role === 'owner' ? load : null)
 
   const setRange = useCallback((days) => {
     const end = localDate()

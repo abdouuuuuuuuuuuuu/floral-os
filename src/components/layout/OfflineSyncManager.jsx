@@ -1,95 +1,75 @@
-import { useEffect, useState } from 'react'
-import { AlertTriangle, CloudOff, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { startOutboxSync } from '../../lib/offlineSync'
 import { countQueuedSales, listFailedSales } from '../../lib/offlineQueue'
 import { useNotification } from '../../context/NotificationContext'
+import { useAuth } from '../../context/AuthContext'
 import FailedSalesReview from './FailedSalesReview'
 
-// Starts the offline sale replay engine, surfaces a small "held offline"
-// badge while sales are queued, and announces when each one finalizes. Sales
-// the server refused stay on a second badge until someone reviews them.
+// Starts the offline sale replay engine and reports held sales in the bell
+// (no floating badges): a warning while sales wait for the connection, a
+// success when each one finalizes, and an error with a "Review" button for
+// sales the server refused. Those stay on this PC until someone reviews them.
 export default function OfflineSyncManager() {
   const { addNotification } = useNotification()
-  const [pending, setPending] = useState(0)
+  const { user } = useAuth()
   const [failed, setFailed] = useState([])
   const [reviewing, setReviewing] = useState(false)
-  const [online, setOnline] = useState(navigator.onLine)
+  const announcedFor = useRef(null)
+
+  const refreshFailed = useCallback(() => listFailedSales().then((rows) => { setFailed(rows); return rows }).catch(() => []), [])
+  const reviewAction = useCallback(() => ({
+    label: 'Review held sales',
+    onClick: () => { void refreshFailed().then((rows) => { if (rows.length) setReviewing(true) }) },
+  }), [refreshFailed])
 
   useEffect(() => {
-    const refreshFailed = () => { listFailedSales().then(setFailed).catch(() => {}) }
-
     startOutboxSync()
-    countQueuedSales().then(setPending)
-    refreshFailed()
+    void refreshFailed()
 
-    const onChange = (event) => {
-      setPending(event.detail?.pending ?? 0)
-      refreshFailed()
-    }
+    const onChange = () => { void refreshFailed() }
     const onSynced = (event) => {
       const number = event.detail?.orderNumber
       addNotification(number ? `Offline sale synced · Order #${number}` : 'Offline sale synced', 'success')
       // Let order/register screens refresh themselves.
       window.dispatchEvent(new CustomEvent('blossom:orders-changed'))
       window.dispatchEvent(new CustomEvent('blossom:loyalty-card-updated'))
-      countQueuedSales().then(setPending)
     }
     const onFailed = (event) => {
-      addNotification(`A held sale needs review: ${event.detail?.message || 'it was refused.'}`, 'error')
-      countQueuedSales().then(setPending)
+      void refreshFailed()
+      addNotification(`A held sale needs review: ${event.detail?.message || 'it was refused.'}`, 'error', { action: reviewAction() })
     }
-    const goOnline = () => setOnline(true)
-    const goOffline = () => setOnline(false)
+    const goOffline = () => {
+      addNotification('Connection lost. New sales are held on this PC and sent automatically when it returns.', 'warning')
+    }
 
     window.addEventListener('blossom:outbox-changed', onChange)
     window.addEventListener('blossom:sale-synced', onSynced)
     window.addEventListener('blossom:sale-sync-failed', onFailed)
-    window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
     return () => {
       window.removeEventListener('blossom:outbox-changed', onChange)
       window.removeEventListener('blossom:sale-synced', onSynced)
       window.removeEventListener('blossom:sale-sync-failed', onFailed)
-      window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
     }
-  }, [addNotification])
+  }, [addNotification, refreshFailed, reviewAction])
 
-  if (pending <= 0 && failed.length === 0) return null
+  // The bell is emptied when someone signs in, so report what is waiting on
+  // this PC once per signed-in person, after sign-in.
+  useEffect(() => {
+    if (!user?.id || announcedFor.current === user.id) return
+    announcedFor.current = user.id
+    void (async () => {
+      const [pending, rows] = await Promise.all([countQueuedSales(), refreshFailed()])
+      if (rows.length) {
+        addNotification(`${rows.length} held ${rows.length === 1 ? 'sale needs' : 'sales need'} review. They are saved only on this PC.`, 'error', { action: reviewAction() })
+      }
+      if (pending > 0) {
+        addNotification(`${pending} ${pending === 1 ? 'sale is' : 'sales are'} held offline and will be sent automatically.`, 'warning')
+      }
+    })()
+  }, [user?.id, addNotification, refreshFailed, reviewAction])
 
-  return (
-    <>
-      <div
-        className="fixed bottom-4 left-4 z-[60] flex flex-col items-start gap-2"
-        style={{ paddingLeft: 'env(safe-area-inset-left, 0px)' }}
-      >
-        {failed.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setReviewing(true)}
-            className="inline-flex items-center gap-2 rounded-full border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-800 shadow-lg"
-          >
-            <AlertTriangle size={14} />
-            {failed.length} {failed.length === 1 ? 'sale needs' : 'sales need'} review
-          </button>
-        )}
-        {pending > 0 && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-semibold text-amber-800 shadow-lg"
-            title={online ? 'Syncing held sales…' : 'Sales held until the connection returns'}
-          >
-            {online
-              ? <RefreshCw size={14} className="animate-spin" />
-              : <CloudOff size={14} />}
-            {pending} {pending === 1 ? 'sale' : 'sales'} held offline
-          </div>
-        )}
-      </div>
-      {reviewing && failed.length > 0 && (
-        <FailedSalesReview sales={failed} onClose={() => setReviewing(false)} />
-      )}
-    </>
-  )
+  if (!reviewing || failed.length === 0) return null
+  return <FailedSalesReview sales={failed} onClose={() => setReviewing(false)} />
 }

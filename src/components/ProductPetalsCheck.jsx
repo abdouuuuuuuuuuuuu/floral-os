@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { bouquetPetals } from '../lib/loyalty'
 
 const BATCH_SIZE = 8
+const FLOWERS = ['flowers', 'flower', 'fleurs', 'fleur']
 
 // The database decides what a product earns, so ask it rather than repeat the rule here.
 async function petalsFor(product) {
@@ -41,7 +42,13 @@ export default function ProductPetalsCheck() {
       .then((results) => { if (active) setRows(results) })
       .catch((loadError) => {
         console.error('Could not load product petals:', loadError)
-        if (active) setError('Could not load product petals. Check the connection and try again.')
+        if (!active) return
+        // Only blame the connection when the request never reached the server.
+        const detail = loadError?.message || String(loadError || '')
+        const offline = (typeof navigator !== 'undefined' && navigator.onLine === false) || /failed to fetch|network/i.test(detail)
+        setError(offline
+          ? 'Could not load product petals: no connection to the server. Check the internet and try again.'
+          : `Could not load product petals: ${detail || 'unknown error'}${loadError?.code ? ` (code ${loadError.code})` : ''}`)
       })
     return () => { active = false }
   }, [])
@@ -71,7 +78,7 @@ export default function ProductPetalsCheck() {
             <tbody>
               {visible.map((row) => (
                 <tr key={row.product_id} className="border-b border-sage-dark/60">
-                  <td className="py-2 pr-4 text-gray-800">{row.item_name}{row.bouquet && <span className="ml-2 text-xs text-fuchsia-700">bouquet</span>}</td>
+                  <td className="py-2 pr-4 text-gray-800">{row.item_name}{row.bouquet && <span className="ml-2 text-xs text-fuchsia-700">bouquet</span>}{!row.bouquet && !row.flower_type && FLOWERS.includes(String(row.category || '').trim().toLowerCase()) && <span className="ml-2 text-xs text-amber-700">no flower type</span>}</td>
                   <td className="py-2 pr-4 text-gray-600">{row.category || '—'}</td>
                   <td className="py-2 text-right font-semibold tabular-nums text-gray-900">{row.petals}</td>
                 </tr>

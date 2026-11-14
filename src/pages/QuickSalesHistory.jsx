@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { useShopName } from '../hooks/useShopName'
 import { useNotification } from '../context/NotificationContext'
 import { printOrderReceipt } from '../utils/orderReceipt'
+import { useRefreshWhenShown } from '../hooks/useRefreshWhenShown'
 
 const money = (value) => Number(value || 0).toLocaleString('fr-FR')
 const dateTime = (value) => value
@@ -37,8 +38,9 @@ function QuickSalesHistory() {
   const [error, setError] = useState('')
   const [printingId, setPrintingId] = useState(null)
 
-  const loadSales = useCallback(async () => {
-    setLoading(true)
+  const loadSales = useCallback(async (options) => {
+    // A quiet refresh (page shown again) keeps the current list on screen.
+    if (options?.quiet !== true) setLoading(true)
     setError('')
     const days = RANGES.find((option) => option.key === range)?.days ?? 0
     try {
@@ -72,6 +74,7 @@ function QuickSalesHistory() {
   }, [range])
 
   useEffect(() => { loadSales() }, [loadSales])
+  useRefreshWhenShown(loadSales)
 
   const visibleSales = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()

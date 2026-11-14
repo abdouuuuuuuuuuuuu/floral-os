@@ -432,14 +432,15 @@ function Dashboard() {
     try {
       await updateStatus(order.id, 'done')
       await refresh({ quiet: true })
+      // One bell alert, with its Undo button (a second "completed" alert used
+      // to be posted for the same click).
       offerUndo({
-        message: `#${order.order_number} marked done`,
+        message: `Order #${order.order_number} completed`,
         onUndo: async () => {
           await updateStatus(order.id, order.status || 'new')
           await refresh({ quiet: true })
         },
       })
-      addNotification(`Order #${order.order_number} completed.`, 'success')
     } catch (err) {
       addNotification(err.message || 'Could not complete the order.', 'error')
     } finally {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useNotification } from '../context/NotificationContext'
+import { useConfirm } from '../context/ConfirmContext'
 import { usePageActive } from '../context/PageActiveContext'
 import { supabase } from '../lib/supabase'
 import { parseCardCode } from '../lib/scanDecode'
@@ -10,6 +11,7 @@ import { parseCardCode } from '../lib/scanDecode'
 export default function CustomerCardLink({ customer, code }) {
   const { role } = useAuth()
   const { addNotification } = useNotification()
+  const confirm = useConfirm()
   const pageActive = usePageActive()
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState('')
@@ -22,7 +24,13 @@ export default function CustomerCardLink({ customer, code }) {
   const close = () => { setOpen(false); setValue(''); setMessage('') }
 
   const unlink = async () => {
-    if (!window.confirm(`Unlink card ${code} from ${customer.full_name}? The card becomes blank and can be linked to someone else. Petals stay on the customer.`)) return
+    const ok = await confirm({
+      title: `Unlink card ${code}?`,
+      message: `${customer.full_name} loses this card. It becomes blank and can be linked to someone else. Petals stay on the customer.`,
+      confirmLabel: 'Unlink card',
+      danger: true,
+    })
+    if (!ok) return
     setBusy(true)
     const { error } = await supabase.rpc('blossom_unlink_loyalty_card', { p_code: code })
     setBusy(false)
@@ -56,7 +64,23 @@ export default function CustomerCardLink({ customer, code }) {
       const { error } = await supabase.rpc('blossom_assign_loyalty_card', {
         p_code: newCode, p_customer_id: customer.customer_id,
       })
-      if (error) throw error
+      if (error) {
+        // Unlink and link are two server calls. If linking the new card fails
+        // (connection drop, or another till took that card a moment ago), put
+        // the old card back so the customer is never left with no card.
+        if (code) {
+          const { error: restoreError } = await supabase.rpc('blossom_assign_loyalty_card', {
+            p_code: code, p_customer_id: customer.customer_id,
+          })
+          if (restoreError) {
+            console.error('Could not restore the previous card:', restoreError)
+            setMessage(`Card ${newCode} could not be linked, and card ${code} could not be put back. This customer has no card now: link one again.`)
+            window.dispatchEvent(new CustomEvent('blossom:loyalty-card-updated', { detail: { code: null, customer } }))
+            return
+          }
+        }
+        throw error
+      }
       window.dispatchEvent(new CustomEvent('blossom:loyalty-card-updated', { detail: { code: newCode, customer } }))
       addNotification(`Card ${newCode} linked to ${customer.full_name}`, 'success')
       setOpen(false)

@@ -96,7 +96,7 @@ export function ConfirmProvider({ children }) {
 
       {dialog && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[70] p-4 scrim-enter"
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[85] p-4 scrim-enter"
           role="dialog"
           aria-modal="true"
           aria-labelledby="confirm-title"

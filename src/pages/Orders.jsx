@@ -9,9 +9,11 @@ import {
   Pencil, Flower2
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
+import LoadErrorBanner from '../components/common/LoadErrorBanner'
 import { CustomerSearch } from '../components/CustomerSearch'
 import { useOrders, ordersViewState } from '../hooks/useOrders'
 import { useNotification } from '../context/NotificationContext'
+import { usePageActive } from '../context/PageActiveContext'
 import { ListSkeleton } from '../components/common/Skeleton'
 import { ColourSignature, Swatch } from '../components/common/FlowerColour'
 import { useSettings } from '../hooks/useSettings'
@@ -24,7 +26,7 @@ import { useUndo } from '../context/UndoContext'
 import { orderStatusTargets } from '../lib/orderStatus'
 import { archiveOrder } from '../lib/orders'
 import AlgerianPlaceSearch from '../components/AlgerianPlaceSearch'
-import { getShippingPlan, localDateString, shipByDate } from '../lib/shippingPlan'
+import { getShippingPlan, localDateString } from '../lib/shippingPlan'
 import { addCalendarDays, formatBusinessDate, formatBusinessDateTime } from '../lib/businessDate.js'
 import { supabase } from '../lib/supabase'
 import { getFunctionErrorMessage } from '../lib/functionError'
@@ -106,6 +108,14 @@ function fullStamp(iso) {
     weekday: 'short', day: 'numeric', month: 'short',
     hour: '2-digit', minute: '2-digit',
   })
+}
+
+/** Whole days from one YYYY-MM-DD to another; positive when `to` is later. */
+function daysBetween(from, to) {
+  const a = new Date(`${String(from).slice(0, 10)}T00:00:00Z`)
+  const b = new Date(`${String(to).slice(0, 10)}T00:00:00Z`)
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return null
+  return Math.round((b - a) / 86400000)
 }
 
 /** Compact circle for the row. Hover gives the full name and timestamp. */
@@ -364,11 +374,19 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
   const [shippingRouteLoading, setShippingRouteLoading] = useState(false)
   const [shippingRouteError, setShippingRouteError] = useState('')
 
-  const nextDateAfter = (dateString) => {
-    return addCalendarDays(dateString ? dateString.split('T')[0] : localDateString(), 1)
-  }
+  // Any day from today on: later (a delay), earlier (brought forward), or a
+  // correction. Pickup orders too. The server applies the same rule.
   const todayDate = localDateString()
-  const minimumDelayDate = [todayDate, nextDateAfter(order.delivery_date)].sort().at(-1)
+  const currentDate = order.delivery_date ? String(order.delivery_date).slice(0, 10) : ''
+  const rescheduleBase = currentDate > todayDate ? currentDate : todayDate
+  const rescheduleShortcuts = [
+    { label: 'Today', date: todayDate },
+    { label: 'Tomorrow', date: addCalendarDays(todayDate, 1) },
+    { label: '+1 day', date: addCalendarDays(rescheduleBase, 1) },
+    { label: '+2 days', date: addCalendarDays(rescheduleBase, 2) },
+    { label: '+1 week', date: addCalendarDays(rescheduleBase, 7) },
+  ].filter((shortcut, index, all) => shortcut.date && shortcut.date !== currentDate && all.findIndex((other) => other.date === shortcut.date) === index)
+  const rescheduleShift = currentDate && delayForm.deliveryDate ? daysBetween(currentDate, delayForm.deliveryDate) : null
   const shippingPlan = getShippingPlan(order)
 
   const calculateAndSaveShippingRoute = async () => {
@@ -387,7 +405,7 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
 
   const openDelayForm = (event) => {
     event?.stopPropagation()
-    setDelayForm({ deliveryDate: minimumDelayDate, reason: '' })
+    setDelayForm({ deliveryDate: rescheduleBase, reason: '' })
     setDelayError('')
     setShowDelayForm(true)
     if (!isExpanded) onToggle()
@@ -396,6 +414,8 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
   const submitDelay = async (event) => {
     event.preventDefault()
     if (!delayForm.deliveryDate || delayLoading) return
+    if (delayForm.deliveryDate < todayDate) { setDelayError('Choose today or a later date.'); return }
+    if (delayForm.deliveryDate === currentDate) { setDelayError('That is already the current date. Pick a different day.'); return }
     setDelayLoading(true)
     setDelayError('')
     const result = await onDelayOrder(order.id, delayForm.deliveryDate, delayForm.reason.trim())
@@ -404,7 +424,7 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
       setShowDelayForm(false)
       setDelayForm({ deliveryDate: '', reason: '' })
     } else {
-      setDelayError(typeof result === 'string' ? result : 'Could not save the delivery delay. Please try again.')
+      setDelayError(typeof result === 'string' ? result : 'Could not save the new date. Please try again.')
     }
   }
 
@@ -447,6 +467,15 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
     setShowCartPicker(false)
     setProductQuery('')
   }
+
+  // The Orders page stays mounted when staff move to another page. An edit
+  // left open used to still be open on return, often on a collapsed row that
+  // could not be reopened. Leaving the page now drops the unsaved edit.
+  const pageActive = usePageActive()
+  useEffect(() => {
+    if (!pageActive && isEditing && !editLoading) cancelEditing()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageActive])
 
    const handleSave = async () => {
     if (!editItems.some(i => !i.deleted) || !editForm.client_name.trim()) return
@@ -538,7 +567,7 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
         ? 'border-primary/30 shadow-md ring-1 ring-primary/10'
         : 'border-sage-dark/70 hover:-translate-y-px hover:border-primary/25 hover:shadow-md'
     }`}>
-      <div className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-3 px-4 py-4 sm:px-5 2xl:flex 2xl:items-center 2xl:gap-3 ${isEditing ? 'cursor-default' : 'cursor-pointer'}`} onClick={() => !isEditing && onToggle()}>
+      <div className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-3 px-4 py-4 sm:px-5 2xl:flex 2xl:items-center 2xl:gap-3 ${isEditing ? 'cursor-default' : 'cursor-pointer'}`} onClick={() => (!isEditing || !isExpanded) && onToggle()}>
         <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2.5 2xl:w-[132px] 2xl:shrink-0">
           <StaffAvatar person={order.cashier} at={order.created_at} />
           <span className="font-semibold text-primary text-sm">#{order.order_number}</span>
@@ -559,12 +588,17 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
             <Calendar size={11} className="shrink-0" />
             <span className="tabular-nums whitespace-nowrap">{formatBusinessDateTime(order.created_at)}</span>
           </p>
-          {order.delivery_date && (
+          {order.delivery_date && (actions.edit && !cannotReschedule ? (
+            <button type="button" onClick={openDelayForm} title={`Change ${fulfillmentLabel.toLowerCase()} date`} className="mt-0.5 -ml-1 flex items-center gap-1 rounded-md px-1 py-0.5 text-2xs text-gray-500 underline decoration-dotted underline-offset-2 transition hover:bg-amber-50 hover:text-amber-800">
+              <Clock size={10} />
+              <span>Due {formatBusinessDate(order.delivery_date)}</span>
+            </button>
+          ) : (
             <p className="mt-0.5 flex items-center gap-1 text-2xs text-gray-400">
               <Clock size={10} />
               <span>Due {formatBusinessDate(order.delivery_date)}</span>
             </p>
-          )}
+          ))}
           {order.delivery_fee_collected && <p className="mt-1 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800">Delivery fee · {Number(order.delivery_fee_amount || 0).toLocaleString('fr-FR')} DA</p>}
           {shippingPlan && <span className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${shippingPlan.urgency === 'today' ? 'border-rose-200 bg-rose-50 text-rose-700' : shippingPlan.urgency === 'overdue' ? 'border-red-200 bg-red-100 text-red-800' : shippingPlan.urgency === 'scheduled' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
             {shippingPlan.label}
@@ -594,19 +628,31 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
         <div className="col-span-2 row-start-5 ml-auto flex items-center gap-1 border-t border-sage-dark/60 pt-2 2xl:ml-auto 2xl:shrink-0 2xl:border-0 2xl:pt-0">
           {savePending && <span className="mr-1 rounded-full bg-blue-50 px-2 py-1 text-2xs font-semibold text-blue-700">Saving…</span>}
           {isEditing && (
-            <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-2xs font-semibold uppercase tracking-wide mr-1">Editing</span>
+            <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-amber-100 py-0.5 pl-2 pr-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-700">
+              Editing
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); cancelEditing() }}
+                disabled={editLoading}
+                className="grid h-4 w-4 place-items-center rounded-full hover:bg-amber-200 disabled:opacity-50"
+                aria-label="Cancel editing this order"
+                title="Cancel editing"
+              >
+                <X size={10} />
+              </button>
+            </span>
           )}
           <button onClick={(e) => { e.stopPropagation(); onViewReceipt(order) }} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-primary hover:bg-primary/5 transition-colors" title="View receipt">
             <Eye size={15} />
           </button>
           {!isEditing && !savePending && actions.edit && (
-            <button onClick={(e) => { e.stopPropagation(); startEditing(e) }} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Edit order">
-              <Pencil size={15} />
+            <button onClick={(e) => { e.stopPropagation(); startEditing(e) }} className="flex h-8 min-w-8 items-center justify-center gap-1 rounded-lg px-1 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 2xl:px-2" title="Edit order">
+              <Pencil size={15} /><span className="hidden text-2xs font-semibold 2xl:inline">Edit</span>
             </button>
           )}
           {!isEditing && !savePending && actions.edit && (
-            <button onClick={openDelayForm} disabled={cannotReschedule} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-amber-700 hover:bg-amber-50 transition-colors disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-gray-400" title={cannotReschedule ? `${fulfillmentLabel} cannot be rescheduled after an order is ${order.status}` : `Delay ${fulfillmentLabel.toLowerCase()}`} aria-label={`${cannotReschedule ? 'Rescheduling unavailable' : `Delay ${fulfillmentLabel.toLowerCase()}`} for order ${order.order_number}`}>
-              <Clock size={15} />
+            <button onClick={openDelayForm} disabled={cannotReschedule} className="flex h-8 min-w-8 items-center justify-center gap-1 rounded-lg px-1 text-gray-400 transition-colors hover:bg-amber-50 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-gray-400 2xl:px-2" title={cannotReschedule ? `${fulfillmentLabel} cannot be rescheduled after an order is ${order.status}` : `Change ${fulfillmentLabel.toLowerCase()} date`} aria-label={`${cannotReschedule ? 'Rescheduling unavailable' : `Change ${fulfillmentLabel.toLowerCase()} date`} for order ${order.order_number}`}>
+              <Clock size={15} /><span className="hidden text-2xs font-semibold 2xl:inline">Date</span>
             </button>
           )}
           {!isEditing && !savePending && actions.archive && (showDeleteConfirm ? (
@@ -690,7 +736,7 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
                   {shippingRouteLoading ? <Loader2 size={15} className="animate-spin" /> : <Truck size={15} />}
                   {shippingRouteLoading ? 'Calculating date…' : 'Update prepare-by date'}
                 </button> : <p className="text-xs text-slate-500">Search and select a town to continue.</p>}
-                {shippingRouteError && <div className="shipping-route-error flex flex-wrap items-center justify-between gap-3 rounded-xl px-3.5 py-3 text-xs" role="alert"><span className="flex items-start gap-2"><AlertTriangle size={15} className="mt-0.5 shrink-0" /><span>Couldn’t calculate the prepare-by date. Check the routing connection and try again.</span></span><button type="button" onClick={calculateAndSaveShippingRoute} disabled={shippingRouteLoading} className="shrink-0 rounded-lg border border-current/20 bg-white/70 px-3 py-2 font-semibold hover:bg-white disabled:opacity-60">Try again</button></div>}
+                {shippingRouteError && <div className="shipping-route-error flex flex-wrap items-center justify-between gap-3 rounded-xl px-3.5 py-3 text-xs" role="alert"><span className="flex items-start gap-2"><AlertTriangle size={15} className="mt-0.5 shrink-0" /><span>{shippingRouteError}</span></span><button type="button" onClick={calculateAndSaveShippingRoute} disabled={shippingRouteLoading} className="shrink-0 rounded-lg border border-current/20 bg-white/70 px-3 py-2 font-semibold hover:bg-white disabled:opacity-60">Try again</button></div>}
               </div>}
             </section>
           )}
@@ -699,15 +745,27 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
             <form onSubmit={submitDelay} className="mb-5 rounded-xl border border-amber-200 bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-900">Delay {fulfillmentLabel.toLowerCase()}</h4>
-                  <p className="text-xs text-gray-500">Keep the order status and payment unchanged.</p>
+                  <h4 className="text-sm font-semibold text-gray-900">Change {fulfillmentLabel.toLowerCase()} date</h4>
+                  <p className="text-xs text-gray-500">Later, earlier, or a correction. Status and payment stay unchanged.</p>
                 </div>
-                <button type="button" aria-label="Close delay form" onClick={() => setShowDelayForm(false)} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100"><X size={16} /></button>
+                <button type="button" aria-label="Close date form" onClick={() => setShowDelayForm(false)} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100"><X size={16} /></button>
+              </div>
+              <div className="mb-3 flex flex-wrap gap-1.5" aria-label="Quick dates">
+                {rescheduleShortcuts.map((shortcut) => (
+                  <button key={shortcut.date} type="button" aria-pressed={delayForm.deliveryDate === shortcut.date} onClick={() => { setDelayError(''); setDelayForm((prev) => ({ ...prev, deliveryDate: shortcut.date })) }} className={`min-h-8 rounded-full border px-3 text-xs font-semibold transition ${delayForm.deliveryDate === shortcut.date ? 'border-amber-500 bg-amber-500 text-white' : 'border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100'}`}>
+                    {shortcut.label}
+                  </button>
+                ))}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600">New {fulfillmentLabel.toLowerCase()} date</label>
-                  <input type="date" min={minimumDelayDate} value={delayForm.deliveryDate} onChange={(e) => setDelayForm((prev) => ({ ...prev, deliveryDate: e.target.value }))} required className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm" />
+                  <input type="date" min={todayDate} value={delayForm.deliveryDate} onChange={(e) => { setDelayError(''); setDelayForm((prev) => ({ ...prev, deliveryDate: e.target.value })) }} required className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm" />
+                  <p className="mt-1 text-2xs text-gray-500" aria-live="polite">
+                    {currentDate ? `Now ${formatBusinessDate(currentDate, 'en-GB')}` : 'No date yet'}
+                    {delayForm.deliveryDate && delayForm.deliveryDate !== currentDate && <> → <span className="font-semibold text-gray-800">{formatBusinessDate(delayForm.deliveryDate, 'en-GB')}</span></>}
+                    {rescheduleShift != null && rescheduleShift !== 0 && <span className={rescheduleShift > 0 ? ' text-amber-700' : ' text-emerald-700'}> · {Math.abs(rescheduleShift)} day{Math.abs(rescheduleShift) === 1 ? '' : 's'} {rescheduleShift > 0 ? 'later' : 'earlier'}</span>}
+                  </p>
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600">Reason <span className="font-normal text-gray-400">(optional)</span></label>
@@ -717,7 +775,7 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
               {delayError && <p role="alert" className="mt-2 text-xs text-rose-700">{delayError}</p>}
               <div className="mt-3 flex justify-end gap-2">
                 <button type="button" onClick={() => setShowDelayForm(false)} disabled={delayLoading} className="btn btn-secondary">Cancel</button>
-                <button type="submit" disabled={delayLoading || !delayForm.deliveryDate} className="btn btn-primary">{delayLoading ? 'Saving…' : 'Save delay'}</button>
+                <button type="submit" disabled={delayLoading || !delayForm.deliveryDate || delayForm.deliveryDate === currentDate} className="btn btn-primary">{delayLoading ? 'Saving…' : 'Save new date'}</button>
               </div>
             </form>
           )}
@@ -900,7 +958,8 @@ function OrderRow({ order, cartItems = [], products = [], isExpanded, onToggle, 
                   )}
                   <div>
                     <label className="text-2xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Delivery Date</label>
-                    <input type="date" value={editForm.delivery_date} onChange={(e) => setEditForm(prev => ({ ...prev, delivery_date: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none" />
+                    <input type="date" min={todayDate} value={editForm.delivery_date} onChange={(e) => setEditForm(prev => ({ ...prev, delivery_date: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none" />
+                    {editForm.delivery_date && editForm.delivery_date < todayDate && <p className="mt-1 text-2xs text-rose-700">Past date. Choose today or later to save.</p>}
                   </div>
                   <div>
                     <label className="text-2xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Delivery Time</label>
@@ -1120,6 +1179,7 @@ function Orders() {
     processingFlowersByColor,
     updateStatus, restoreVoidedOrder, markAsPaid, recordPartialPayment, recordRefund,
     updateOrder, delayOrder, refresh, refreshOrder, toggleSort,
+    error: ordersLoadError,
   } = useOrders()
 
   const { addNotification } = useNotification()
@@ -1391,32 +1451,30 @@ function Orders() {
     if (error) throw new Error(await getFunctionErrorMessage(error, 'Could not save this route.'))
     if (data?.error) throw new Error(data.error)
     await refreshOrder(orderId)
-    addNotification('Prepare-by date updated.', 'success')
+    // The location is saved even when the routing service is down; only the
+    // prepare-by date is missing and is left for follow-up.
+    if (data?.route_error) {
+      addNotification(`Location saved. Prepare-by date needs follow-up: ${data.route_error}`, 'warning')
+      return
+    }
+    addNotification('Location and prepare-by date updated.', 'success')
   }
 
-  const focusShippingOrder = (order) => {
-    setQueueFilter('all')
-    setDeliveryRange('all')
-    setStatusFilter('all')
-    setPaymentFilter('all')
-    setSearchQuery(String(order.order_number))
-    setPage(0)
-    setFocusRequestedOrder(order.id)
-  }
 
   const handleDelayOrder = async (orderId, deliveryDate, reason) => {
     try {
       await delayOrder(orderId, deliveryDate, reason)
-      addNotification('Order date updated and reschedule recorded', 'success')
+      addNotification(`Order date changed to ${formatBusinessDate(deliveryDate, 'en-GB')}`, 'success')
       return true
     } catch (err) {
-      return err.message || 'Could not delay the order.'
+      return err.message || 'Could not change the order date.'
     }
   }
 
   return (
     <DashboardLayout>
       <main className="mx-auto max-w-[1600px] space-y-5 pb-6">
+        <LoadErrorBanner what="orders" error={ordersLoadError} onRetry={() => refresh()} hasData={allOrders.length > 0} />
         <header className="relative isolate flex flex-wrap items-end justify-between gap-4 overflow-hidden rounded-3xl border border-sage-dark/70 bg-gradient-to-br from-white via-white to-primary-subtle/50 px-5 py-5 shadow-sm sm:px-7 sm:py-6">
           <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 -z-10 h-48 w-48 rounded-full bg-accent/10 blur-3xl" />
           <div>

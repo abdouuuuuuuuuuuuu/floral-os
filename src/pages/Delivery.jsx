@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Truck, Bike, ChevronLeft, ChevronRight, Phone, MapPin, Clock,
@@ -16,6 +16,12 @@ import { addCalendarDays, BUSINESS_TIME_ZONE, formatBusinessDate, localDate } fr
 
 const fmt = (n) => (n ?? 0).toLocaleString('fr-FR') + ' DA'
 
+// Customer names, phones and notes are typed by staff and end up in printed
+// HTML. Escape them so a "<" in a note can't break or alter the printout.
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+))
+
 function dayLabel(dateStr) {
   const day = String(dateStr || '').slice(0, 10)
   const today = localDate()
@@ -29,7 +35,7 @@ function dayLabel(dateStr) {
 }
 
 // ─── ONE STOP ──────────────────────────────────────────────────────
-function Stop({ order, index, onHandoff, onDeliver, onFailure, onOpen, onArchive, late }) {
+function Stop({ order, index, onHandoff, onDeliver, onFailure, onOpen, onArchive, late, busy = false }) {
   const Icon = order.delivery_method === 'motorcycle' ? Bike : Truck
   const done = order.status === 'done'
   const owes = (order.amount_due || 0) > 0
@@ -121,12 +127,14 @@ function Stop({ order, index, onHandoff, onDeliver, onFailure, onOpen, onArchive
         {!done && <>
           {!order.delivery_handed_off_at && <button
             onClick={() => onHandoff(order)}
+            disabled={busy}
             className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 text-xs font-semibold text-sky-800 transition hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
           >
             <Truck size={14} /> Handed to courier
           </button>}
           <button
             onClick={() => onDeliver(order)}
+            disabled={busy}
             className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-accent px-3.5 text-xs font-semibold text-white shadow-sm transition hover:bg-accent-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
           >
             <CheckCircle2 size={14} /> Delivered
@@ -167,16 +175,33 @@ function Delivery() {
 
   const isToday = date === localDate()
 
-  const handleDeliver = async (order) => {
+  // One action per order at a time. A double tap used to send "delivered"
+  // twice: the first succeeded and the second showed a red "no longer an
+  // active delivery" error, so couriers thought the delivery was not saved.
+  const [busyOrderIds, setBusyOrderIds] = useState([])
+  const busyRef = useRef(new Set())
+  const runOnce = async (orderId, action) => {
+    if (busyRef.current.has(orderId)) return
+    busyRef.current.add(orderId)
+    setBusyOrderIds([...busyRef.current])
+    try {
+      await action()
+    } finally {
+      busyRef.current.delete(orderId)
+      setBusyOrderIds([...busyRef.current])
+    }
+  }
+
+  const handleDeliver = (order) => runOnce(order.id, async () => {
     try {
       await markDelivered(order.id)
       addNotification(`#${order.order_number} marked delivered`, 'success')
     } catch (err) {
       addNotification(err.message || 'Could not mark as delivered.', 'error')
     }
-  }
+  })
 
-  const handleHandoff = async (order) => {
+  const handleHandoff = (order) => runOnce(order.id, async () => {
     try {
       const result = await markHandedOff(order.id)
       addNotification(
@@ -186,7 +211,7 @@ function Delivery() {
     } catch (err) {
       addNotification(err.message || 'Could not record courier handoff.', 'error')
     }
-  }
+  })
 
   const handleArchive = async (order) => {
     const ok = await confirm({
@@ -241,17 +266,17 @@ function Delivery() {
           <div class="row" style="font-size:13px">
             <span><strong>${i + 1}. ${
               o.delivery_time && o.delivery_time !== '00:00:00'
-                ? o.delivery_time.slice(0, 5)
+                ? escapeHtml(String(o.delivery_time).slice(0, 5))
                 : 'Any'
             }</strong></span>
-            <span>#${o.order_number}</span>
+            <span>#${escapeHtml(o.order_number)}</span>
           </div>
-          <div style="font-size:12px">${o.client_name || ''}</div>
-          ${o.client_phone ? `<div style="font-size:11px">${o.client_phone}</div>` : ''}
-          ${o.notes ? `<div style="font-size:11px">${o.notes}</div>` : ''}
+          <div style="font-size:12px">${escapeHtml(o.client_name)}</div>
+          ${o.client_phone ? `<div style="font-size:11px">${escapeHtml(o.client_phone)}</div>` : ''}
+          ${o.notes ? `<div style="font-size:11px">${escapeHtml(o.notes)}</div>` : ''}
           ${
             (o.amount_due || 0) > 0
-              ? `<div style="font-size:12px"><strong>COLLECT ${o.amount_due.toLocaleString('fr-FR')} DA</strong></div>`
+              ? `<div style="font-size:12px"><strong>COLLECT ${Number(o.amount_due).toLocaleString('fr-FR')} DA</strong></div>`
               : ''
           }
         </div>`)
@@ -439,6 +464,7 @@ function Delivery() {
                     order={o}
                     index={i + 1}
                     late
+                    busy={busyOrderIds.includes(o.id)}
                     onDeliver={handleDeliver}
                     onHandoff={handleHandoff}
                     onArchive={handleArchive}
@@ -477,7 +503,8 @@ function Delivery() {
                       key={o.id}
                       order={o}
                       index={i + 1}
-                      onDeliver={handleDeliver}
+                      busy={busyOrderIds.includes(o.id)}
+                    onDeliver={handleDeliver}
                       onHandoff={handleHandoff}
                       onArchive={handleArchive}
                       onFailure={(order) => { setFailureOrder(order); setFailureError('') }}
@@ -503,7 +530,8 @@ function Delivery() {
                       key={o.id}
                       order={o}
                       index={run.timed.length + i + 1}
-                      onDeliver={handleDeliver}
+                      busy={busyOrderIds.includes(o.id)}
+                    onDeliver={handleDeliver}
                       onHandoff={handleHandoff}
                       onArchive={handleArchive}
                       onFailure={(order) => { setFailureOrder(order); setFailureError('') }}

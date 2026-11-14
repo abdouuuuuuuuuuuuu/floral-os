@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from 'vite'
+import { readFileSync } from 'node:fs'
 import react from '@vitejs/plugin-react'
 
 // Content-Security-Policy for the packaged app. Added to builds only: the dev
@@ -41,10 +42,29 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
   return {
     plugins: [react(), contentSecurityPolicy(env)],
+    // The app version, shown in the sidebar and on sign-in, so anyone can say
+    // which version a till runs when something goes wrong.
+    define: {
+      __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version),
+    },
     base: './',          // ← CRITIQUE pour Electron
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          // Split the big libraries out of the app bundle (was one 1.6 MB
+          // file) so they parse separately and cache across app updates.
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined
+            if (/[\\/]node_modules[\\/](recharts|d3-|victory-vendor)/.test(id)) return 'vendor-charts'
+            if (/[\\/]node_modules[\\/](lottie-web|lottie-react)[\\/]/.test(id)) return 'vendor-lottie'
+            if (/[\\/]node_modules[\\/]@supabase[\\/]/.test(id)) return 'vendor-supabase'
+            if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return 'vendor-react'
+            return 'vendor'
+          },
+        },
+      },
     },
     server: {
       proxy: {

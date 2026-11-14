@@ -66,7 +66,7 @@ export function useNewOrderSound(enabled) {
 
     return () => {
       clearTimeout(timer)
-      channel.unsubscribe()
+      void supabase.removeChannel(channel)
     }
   }, [enabled])
 }

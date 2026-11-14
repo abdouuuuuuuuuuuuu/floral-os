@@ -1,13 +1,22 @@
 // How petals are earned is decided in the database: see
-// blossom_loyalty_points_per_unit in the 20261103100000 migration.
-export const LOYALTY_EARN_RULE = 'Lily 3 petals · rose 2 · chrysanthemum, alstroemeria and other flowers 1'
+// blossom_loyalty_points_per_unit (20261109110000: only the Flowers category earns).
+export const LOYALTY_EARN_RULE = 'Flowers only: lily 3 petals · rose 2 · chrysanthemum, alstroemeria, branches and other flowers 1. Chocolates, gifts and decorations earn none'
 export function bouquetPetals(lilies, roses, otherFlowers) {
   return 3 * (Number(lilies) || 0) + 2 * (Number(roses) || 0) + (Number(otherFlowers) || 0)
 }
-/** Petals a customer has earned and kept: leaves out spending, its refunds and manual corrections. */
+/**
+ * Petals a customer has earned and kept. Counts only earnings and their own
+ * adjustments ("Earned petals …"). An archived order is left out entirely:
+ * its reversal row undoes earned and spent petals together, so counting it
+ * would turn spent petals into "earned" ones.
+ */
 export function earnedPetals(transactions) {
+  const archivedOrders = new Set(transactions
+    .filter((row) => row.order_id && /^Petals reversed because the order was archived/.test(row.note || ''))
+    .map((row) => row.order_id))
   return transactions
-    .filter((row) => row.transaction_type !== 'redeem' && !/^(Spent petals|Manual correction)/.test(row.note || ''))
+    .filter((row) => !archivedOrders.has(row.order_id))
+    .filter((row) => row.transaction_type === 'earn' || /^Earned petals/.test(row.note || ''))
     .reduce((sum, row) => sum + Number(row.points_delta || 0), 0)
 }
 export const LOYALTY_REDEMPTION_POINTS = 50

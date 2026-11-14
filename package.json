@@ -1,7 +1,7 @@
 {
   "name": "floral-os",
   "private": true,
-  "version": "1.0.12",
+  "version": "1.0.21",
   "description": "Blossom POS - Flower Shop Management",
   "author": "Zaki <abdou.noui311@gmail.com>",
   "type": "module",
@@ -12,7 +12,7 @@
     "assistant:eval": "node scripts/evaluate-assistant.mjs",
     "assistant:test": "node scripts/test-assistant-catalog.mjs",
     "preview": "vite preview",
-    "lint": "oxlint .",
+    "lint": "oxlint src electron scripts",
     "electron:dev": "npm run build && electron .",
     "electron:pack": "npm run build && electron-builder",
     "electron:build": "npm run build && electron-builder --win --publish always"
@@ -34,7 +34,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.4.0",
     "autoprefixer": "^10.5.2",
-    "electron": "^33.2.0",
+    "electron": "^44.10.2",
     "electron-builder": "^26.0.12",
     "oxlint": "^0.16.0",
     "postcss": "^8.5.16",
@@ -45,7 +45,7 @@
   "build": {
     "appId": "com.blossom.pos",
     "productName": "Blossom POS",
-    "asar": false,
+    "asar": true,
     "electronDist": "node_modules/electron/dist",
     "directories": {
       "output": "release",
@@ -59,7 +59,7 @@
     "publish": {
       "provider": "github",
       "owner": "abdouuuuuuuuuuuuu",
-      "repo": "floral-os",
+      "repo": "floral-os-releases",
       "releaseType": "release"
     },
     "win": {

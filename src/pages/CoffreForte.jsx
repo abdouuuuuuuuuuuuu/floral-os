@@ -22,14 +22,15 @@ import {
   Banknote,
   Smartphone,
   DollarSign,
-  Trash2,
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
+import LoadErrorBanner from '../components/common/LoadErrorBanner'
 import { useCashRegister } from '../hooks/useCashRegister'
 import { printThermalReceipt } from '../utils/printThermal'
 import { useShopName } from '../hooks/useShopName'
-import { useNotification } from '../context/NotificationContext'
 import { addCalendarDays, localDate } from '../lib/businessDate'
+import { useConfirm } from '../context/ConfirmContext'
+import { useNotification } from '../context/NotificationContext'
 
 // Payment methods are stored lowercase by the write paths; fold anything else
 // into cash so a stray value still reconciles somewhere.
@@ -158,6 +159,7 @@ function CenteredModal({ isOpen, onClose, children, maxWidth = 'max-w-xl' }) {
 }
 
 function AddTransactionModal({ isOpen, onClose, onSubmit, submitting, initialType = 'cash_in' }) {
+  const confirm = useConfirm()
   const [formType, setFormType] = useState('cash_in')
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
@@ -188,7 +190,12 @@ function AddTransactionModal({ isOpen, onClose, onSubmit, submitting, initialTyp
     if (numAmount === 0) {
       // An empty drawer is allowed at opening, but never by accident.
       if (formType !== 'opening') return
-      if (!window.confirm('Open the register with an empty drawer (0 DA)?')) return
+      const ok = await confirm({
+        title: 'Open with an empty drawer?',
+        message: 'The register will open with 0 DA in the drawer.',
+        confirmLabel: 'Open at 0 DA',
+      })
+      if (!ok) return
     }
     try { await onSubmit(formType, numAmount, description, category, source) } catch {}
   }
@@ -460,6 +467,7 @@ function CashInModal({ isOpen, onClose, cashInTransactions, todayCashIn, linkedO
 }
 
 function CashOutModal({ isOpen, onClose, transactions, todayCashOutByMethod, addExpense, refresh }) {
+  const { addNotification } = useNotification()
   const [expenseItem, setExpenseItem] = useState('')
   const [expenseQty, setExpenseQty] = useState('')
   const [expensePrice, setExpensePrice] = useState('')
@@ -503,7 +511,7 @@ function CashOutModal({ isOpen, onClose, transactions, todayCashOutByMethod, add
       await refresh()
     } catch (err) {
       console.error(err)
-      alert(err.message || 'Failed to add expense')
+      addNotification(err.message || 'Could not add the expense. Check the connection and try again.', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -628,6 +636,7 @@ function CashOutModal({ isOpen, onClose, transactions, todayCashOutByMethod, add
 }
 
 function ClosingBalanceModal({ isOpen, onClose, computedBalance, openingBalance, todayCashIn, todayCashOut, todayCashInByMethod, todayCashOutByMethod, setClosingBalance, refresh }) {
+  const { addNotification } = useNotification()
   const [counts, setCounts] = useState({ cash: '', baridimob: '', usd: '' })
   const [banked, setBanked] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -673,7 +682,7 @@ function ClosingBalanceModal({ isOpen, onClose, computedBalance, openingBalance,
       onClose()
     } catch (err) {
       console.error(err)
-      alert(err.message || 'Failed to set closing balance')
+      addNotification(err.message || 'Could not save the closing count. Check the connection and try again.', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -775,7 +784,6 @@ function ClosingBalanceModal({ isOpen, onClose, computedBalance, openingBalance,
 }
 
 function CoffreForte() {
-  const { addNotification } = useNotification()
   const {
     transactions,
     calendarDays = [],
@@ -795,6 +803,7 @@ function CoffreForte() {
     setOpeningBalance,
     setClosingBalance,
     refresh,
+    error: registerError,
     loadDayDetails
   } = useCashRegister()
 
@@ -802,6 +811,7 @@ function CoffreForte() {
   const [showCashInModal, setShowCashInModal] = useState(false)
   const [showCashOutModal, setShowCashOutModal] = useState(false)
   const [showClosingModal, setShowClosingModal] = useState(false)
+  const { addNotification } = useNotification()
   const [showAddTransactionModal, setShowAddTransactionModal] = useState(false)
   const [initialTransactionType, setInitialTransactionType] = useState('cash_in')
   const [activePanel, setActivePanel] = useState(null)
@@ -855,11 +865,11 @@ function CoffreForte() {
       setShowAddTransactionModal(false)
     } catch (err) {
       console.error(err)
-      alert(err.message || 'Failed to save transaction')
+      addNotification(err.message || 'Could not save the transaction. Check the connection and try again.', 'error')
     } finally {
       setSubmitting(false)
     }
-  }, [addTransaction, setOpeningBalance, refresh])
+  }, [addTransaction, setOpeningBalance, refresh, addNotification])
 
   const openDayDetail = useCallback(async (date, dayData) => {
     setSelectedDate(date)
@@ -907,7 +917,7 @@ function CoffreForte() {
     const money = (n) => `${Number(n || 0).toLocaleString('fr-FR')} DA`
 
     const htmlContent = `
-      <div class="center brand">${(shopName || 'BLOSSOM').toUpperCase()}</div>
+      <div class="center brand">${String(shopName || 'BLOSSOM').toUpperCase().replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[c])}</div>
       <div class="center sub">Daily Cash Report</div>
       <div class="center" style="font-size:11px;font-weight:700">${dateStr}</div>
       <div class="center" style="font-size:10px;margin-bottom:6px">Printed at ${timeStr}</div>
@@ -1056,6 +1066,7 @@ function CoffreForte() {
   return (
     <DashboardLayout>
       <main className="mx-auto max-w-[1500px] space-y-5 pb-6">
+        <LoadErrorBanner what="the register" error={registerError} onRetry={() => refresh()} hasData={transactions.length > 0} />
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Cash management</p>

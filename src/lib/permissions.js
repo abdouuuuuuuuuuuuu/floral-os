@@ -34,7 +34,8 @@ export const ROUTE_PERMISSIONS = {
 
 export const ORDER_ACTIONS = {
   owner:   { edit: true, status: true, cancel: true, payment: true, refund: true, delete: true, archive: true },
-  manager: { edit: true, status: true, cancel: true, payment: true, refund: false, delete: false, archive: true },
+  // refund matches record_order_payment, which lets owners and managers refund.
+  manager: { edit: true, status: true, cancel: true, payment: true, refund: true, delete: false, archive: true },
   florist: { edit: true, status: true, cancel: false, payment: true, refund: false, delete: false, archive: true },
   cashier: { edit: false, status: false, cancel: false, payment: true, refund: false, delete: false, archive: true },
   delivery:{ edit: false, status: false, cancel: false, payment: false, refund: false, delete: false, archive: true },

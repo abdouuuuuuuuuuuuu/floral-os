@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Plus, Minus, ShoppingCart, ImageIcon, Package, Trash2, Search, X, ArrowRight,
-  Box, Check, SlidersHorizontal,
+  Box, Check, SlidersHorizontal, GripVertical,
   Flower2, Candy, Gift,
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import { useProducts } from '../hooks/useProducts'
 import { useCartContext } from '../context/CartContext'
+import { useCartDrag } from '../hooks/useCartDrag'
 import { useNotification } from '../context/NotificationContext'
 import { useAuth } from '../context/AuthContext'
 import { useUndo } from '../context/UndoContext'
@@ -84,9 +86,62 @@ const getAutomaticCategoryGroup = (product) => {
   return { id: `category:${normalizeFilterValue(label)}`, label }
 }
 
-function CartPanel({ items, unitCount, subtotal, total, startedAsQuickSale, onClear, onDecrement, onIncrement, onQuantityChange, onRemove, onCheckout, onClose, isMobile = false }) {
+function DropIndicator() {
+  return (
+    <div aria-hidden="true" className="cart-drop-indicator relative mx-1 h-1 rounded-full bg-accent">
+      <span className="absolute -left-1.5 -top-1 h-3 w-3 rounded-full border-2 border-accent bg-white" />
+    </div>
+  )
+}
+
+/**
+ * The card that follows the pointer while something is being dragged. It is
+ * portalled to <body> so no transformed ancestor can pin a fixed element.
+ */
+function DragGhost({ drag, ghostRef }) {
+  if (!drag) return null
+  const product = drag.product || {}
+  const hint = drag.overZone
+    ? (drag.kind === 'line' ? 'Release to move it here' : 'Release to add it to the cart')
+    : (drag.kind === 'line' ? 'Drag it to a new place in the cart' : 'Drag it into the cart')
+  return createPortal(
+    <div ref={ghostRef} aria-hidden="true" className="cart-drag-ghost pointer-events-none fixed left-0 top-0 z-[80] w-60 origin-top-left" style={{ transform: `translate3d(${drag.x + 14}px, ${drag.y + 10}px, 0) rotate(-2deg)` }}>
+      <div className={`flex items-center gap-3 rounded-xl border bg-white p-2.5 shadow-2xl shadow-gray-900/25 transition-colors ${drag.overZone ? 'border-accent ring-2 ring-accent/30' : 'border-sage-dark'}`}>
+        <div className="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-sage text-gray-400">
+          <ImageIcon size={16} />
+          {product.image_url && <img src={product.image_url} alt="" draggable="false" className="absolute inset-0 h-full w-full object-cover" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-gray-900">{drag.kind === 'line' ? `${product.quantity} × ${product.name}` : product.name}</p>
+          <p className={`text-2xs ${drag.overZone ? 'font-semibold text-accent' : 'text-gray-500'}`}>{hint}</p>
+        </div>
+        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg transition-colors ${drag.overZone ? 'bg-accent text-white' : 'bg-accent-subtle text-accent'}`}>{drag.kind === 'line' ? <GripVertical size={14} /> : <Plus size={14} />}</span>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function CartPanel({ items, unitCount, subtotal, total, startedAsQuickSale, onClear, onDecrement, onIncrement, onQuantityChange, onRemove, onCheckout, onClose, isMobile = false, drag = null, lineHandleProps = () => ({}), onMoveLine = () => {} }) {
+  // Phones: pull the handle down to close the sheet.
+  const sheetSwipeRef = useRef(null)
+  const sheetHandleProps = isMobile ? {
+    onPointerDown: (event) => { sheetSwipeRef.current = { y: event.clientY, id: event.pointerId }; try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* optional */ } },
+    onPointerUp: (event) => { const start = sheetSwipeRef.current; sheetSwipeRef.current = null; if (start && event.pointerId === start.id && event.clientY - start.y > 56) onClose?.() },
+    onPointerCancel: () => { sheetSwipeRef.current = null },
+    style: { touchAction: 'none' },
+  } : null
+  const dropActive = drag?.kind === 'product' && drag.overZone === 'list'
+  // Where the dragged thing would land. Hidden when a line would land back
+  // where it already is.
+  const indicatorIndex = (() => {
+    if (!drag || drag.overZone !== 'list' || drag.overIndex == null) return null
+    if (drag.kind === 'line' && (drag.overIndex === drag.fromIndex || drag.overIndex === drag.fromIndex + 1)) return null
+    return drag.overIndex
+  })()
   return (
     <section aria-label="Cart summary" className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-sage-dark/80 bg-white shadow-md shadow-gray-900/[0.04]">
+      {isMobile && <button type="button" {...sheetHandleProps} onClick={onClose} aria-label="Close cart" title="Pull down to close" className="flex w-full shrink-0 cursor-grab justify-center bg-gradient-to-r from-white to-primary-subtle/40 pt-2.5 pb-0.5 active:cursor-grabbing"><span className="h-1.5 w-12 rounded-full bg-gray-300" /></button>}
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-sage-dark/70 bg-gradient-to-r from-white to-primary-subtle/40 px-4 py-4 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary-subtle text-primary"><ShoppingCart size={18} /></div>
@@ -104,41 +159,64 @@ function CartPanel({ items, unitCount, subtotal, total, startedAsQuickSale, onCl
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+      <div data-cart-drop-zone="list" className={`relative min-h-0 flex-1 overflow-y-auto p-3 transition-colors sm:p-4 ${dropActive ? 'bg-accent-subtle/50 ring-2 ring-inset ring-accent/40' : drag?.kind === 'product' ? 'bg-accent-subtle/20 ring-2 ring-inset ring-dashed ring-accent/25' : ''}`}>
         {items.length === 0 ? (
           <div className="flex h-full min-h-56 flex-col items-center justify-center px-4 text-center">
-            <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-sage text-primary"><ShoppingCart size={24} /></div>
-            <p className="text-sm font-semibold text-gray-800">Your cart is empty</p>
-            <p className="mt-1 max-w-52 text-xs leading-relaxed text-gray-500">Choose a product from the catalog. It will appear here for review.</p>
+            <div className={`mb-4 grid h-14 w-14 place-items-center rounded-2xl transition-colors ${dropActive ? 'bg-accent text-white' : 'bg-sage text-primary'}`}><ShoppingCart size={24} /></div>
+            <p className="text-sm font-semibold text-gray-800">{dropActive ? 'Drop it here' : 'Your cart is empty'}</p>
+            <p className="mt-1 max-w-52 text-xs leading-relaxed text-gray-500">{dropActive ? 'Release to add this product.' : 'Tap a product to add it, or drag it in here.'}</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {items.map((item) => (
-              <article key={item.id} className="rounded-xl border border-sage-dark/70 bg-white p-3 transition-colors hover:border-primary/20">
-                <div className="flex items-start gap-3">
-                  <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-sage text-gray-400">
-                    <ImageIcon size={17} />
-                    {item.image_url && <img src={item.image_url} alt="" className="absolute inset-0 h-full w-full object-cover" onError={(event) => event.currentTarget.remove()} />}
+            {items.map((item, index) => (
+              <Fragment key={item.id}>
+                {indicatorIndex === index && <DropIndicator />}
+                <article data-cart-line={item.id} className={`rounded-xl border border-sage-dark/70 bg-white p-3 transition hover:border-primary/20 ${drag?.kind === 'line' && drag.itemId === item.id ? 'scale-[0.98] opacity-40' : ''}`}>
+                  <div className="flex items-start gap-2">
+                    <button
+                      type="button"
+                      {...lineHandleProps(item, index)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'ArrowUp') { event.preventDefault(); onMoveLine(item, index, -1) }
+                        else if (event.key === 'ArrowDown') { event.preventDefault(); onMoveLine(item, index, 1) }
+                      }}
+                      aria-label={`Move ${item.name}, position ${index + 1} of ${items.length}. Drag it, or press the up and down arrow keys.`}
+                      title="Drag to reorder"
+                      className="cart-grip -ml-1.5 mt-2 grid h-8 w-6 shrink-0 cursor-grab place-items-center rounded-md text-gray-300 transition hover:bg-sage hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 active:cursor-grabbing"
+                    >
+                      <GripVertical size={16} />
+                    </button>
+                    <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-sage text-gray-400">
+                      <ImageIcon size={17} />
+                      {item.image_url && <img src={item.image_url} alt="" draggable="false" className="absolute inset-0 h-full w-full object-cover" onError={(event) => event.currentTarget.remove()} />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words text-sm font-semibold leading-snug text-gray-900">{item.name}</p>
+                      <p className="mt-1 text-2xs text-gray-500">{item.price.toLocaleString('fr-FR')} DA each</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold tabular-nums text-primary">{item.totalPrice.toLocaleString('fr-FR')} DA</p>
+                      <button type="button" onClick={() => onRemove(item.id)} aria-label={`Remove ${item.name} from cart`} title="Remove item" className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-2xs font-medium text-gray-400 transition hover:bg-danger-subtle hover:text-danger"><Trash2 size={12} /> Remove</button>
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="break-words text-sm font-semibold leading-snug text-gray-900">{item.name}</p>
-                    <p className="mt-1 text-2xs text-gray-500">{item.price.toLocaleString('fr-FR')} DA each</p>
+                  <div className="mt-3 flex items-center justify-between gap-3 border-t border-sage-dark/60 pt-3">
+                    {/* Stems sell by the bunch: one tap for 5, 10 or 12 more. */}
+                    <div className="flex items-center gap-1" role="group" aria-label={`Add a bunch of ${item.name}`}>
+                      {[5, 10, 12].map((bunch) => (
+                        <button key={bunch} type="button" onClick={() => onQuantityChange(item, item.quantity + bunch)} aria-label={`Add ${bunch} more ${item.name}`} className="min-h-8 rounded-md border border-sage-dark/80 bg-white px-2 text-2xs font-semibold text-gray-600 transition hover:border-primary/30 hover:text-primary">+{bunch}</button>
+                      ))}
+                    </div>
+                    <div className="flex items-center rounded-lg border border-sage-dark bg-sage/50 p-0.5">
+                      <button type="button" onClick={() => onDecrement(item)} disabled={item.quantity <= 1} aria-label={`Decrease ${item.name} quantity`} className="grid h-9 w-9 place-items-center rounded-md text-gray-600 transition hover:bg-white hover:text-primary disabled:cursor-not-allowed disabled:opacity-35"><Minus size={15} /></button>
+                      <input type="number" inputMode="numeric" min="1" step="1" value={item.quantity} onChange={(event) => onQuantityChange(item, Number.parseInt(event.target.value, 10))} onBlur={(event) => { const quantity = Number.parseInt(event.target.value, 10); if (!Number.isInteger(quantity) || quantity < 1) onQuantityChange(item, item.quantity) }} aria-label={`Quantity for ${item.name}`} className="h-9 w-12 border-x border-sage-dark/70 bg-transparent text-center text-sm font-semibold tabular-nums text-gray-900 outline-none focus:bg-white" />
+                      <button type="button" onClick={() => onIncrement(item)} aria-label={`Increase ${item.name} quantity`} className="grid h-9 w-9 place-items-center rounded-md text-primary transition hover:bg-white"><Plus size={15} /></button>
+                    </div>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold tabular-nums text-primary">{item.totalPrice.toLocaleString('fr-FR')} DA</p>
-                    <button type="button" onClick={() => onRemove(item.id)} aria-label={`Remove ${item.name} from cart`} title="Remove item" className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-2xs font-medium text-gray-400 transition hover:bg-danger-subtle hover:text-danger"><Trash2 size={12} /> Remove</button>
-                  </div>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3 border-t border-sage-dark/60 pt-3">
-                  <span className="text-xs text-gray-500">Quantity</span>
-                  <div className="flex items-center rounded-lg border border-sage-dark bg-sage/50 p-0.5">
-                    <button type="button" onClick={() => onDecrement(item)} disabled={item.quantity <= 1} aria-label={`Decrease ${item.name} quantity`} className="grid h-9 w-9 place-items-center rounded-md text-gray-600 transition hover:bg-white hover:text-primary disabled:cursor-not-allowed disabled:opacity-35"><Minus size={15} /></button>
-                    <input type="number" inputMode="numeric" min="1" step="1" value={item.quantity} onChange={(event) => onQuantityChange(item, Number.parseInt(event.target.value, 10))} onBlur={(event) => { const quantity = Number.parseInt(event.target.value, 10); if (!Number.isInteger(quantity) || quantity < 1) onQuantityChange(item, item.quantity) }} aria-label={`Quantity for ${item.name}`} className="h-9 w-12 border-x border-sage-dark/70 bg-transparent text-center text-sm font-semibold tabular-nums text-gray-900 outline-none focus:bg-white" />
-                    <button type="button" onClick={() => onIncrement(item)} aria-label={`Increase ${item.name} quantity`} className="grid h-9 w-9 place-items-center rounded-md text-primary transition hover:bg-white"><Plus size={15} /></button>
-                  </div>
-                </div>
-              </article>
+                </article>
+              </Fragment>
             ))}
+            {indicatorIndex === items.length && <DropIndicator />}
+            {items.length >= 2 && !drag && <p className="pt-1 text-center text-2xs text-gray-400"><GripVertical size={11} className="-mt-0.5 inline" /> Drag to reorder · the receipt follows this order</p>}
           </div>
         )}
       </div>
@@ -160,8 +238,9 @@ function CartPanel({ items, unitCount, subtotal, total, startedAsQuickSale, onCl
 function Cart() {
   const { user } = useAuth()
   const { products, loading } = useProducts()
-  const { items, addItem, updateQuantity, removeItem, subtotal, total, clearCart, unitCount } = useCartContext()
+  const { items, addItem, updateQuantity, removeItem, moveItem, subtotal, total, clearCart, unitCount } = useCartContext()
   const { addNotification } = useNotification()
+  const [moveAnnouncement, setMoveAnnouncement] = useState('')
   const { offerUndo } = useUndo()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -224,14 +303,14 @@ function Cart() {
 
   const getStockStatus = (stock, inCart) => {
     const remaining = stock - inCart
-    if (remaining <= 0) return { label: '0 left', text: 'text-danger', bg: 'bg-danger-subtle', border: 'border-danger/15' }
+    if (remaining <= 0) return { label: '0 left · recount', text: 'text-danger', bg: 'bg-danger-subtle', border: 'border-danger/15' }
     if (remaining < 5) return { label: `${remaining} left`, text: 'text-warning', bg: 'bg-warning-subtle', border: 'border-warning/15' }
     return { label: `${remaining} left`, text: 'text-gray-500', bg: 'bg-sage', border: 'border-sage-dark/70' }
   }
 
-  const handleAddItem = (product) => {
+  const handleAddItem = (product, { position = null } = {}) => {
     recordProductClick(product.id)
-    const result = addItem(product)
+    const result = addItem(product, { position })
 
     // The item is always added now — matching Quick Sale, where a
     // florist can sell what's physically on the bench regardless of a
@@ -244,6 +323,27 @@ function Cart() {
     setAddedProductId(product.id)
     setTimeout(() => setAddedProductId(null), 400)
   }
+
+  const handleMoveLine = (item, fromIndex, delta) => {
+    const target = fromIndex + delta
+    if (target < 0 || target >= items.length) return
+    moveItem(item.id, target)
+    setMoveAnnouncement(`${item.name} moved to position ${target + 1} of ${items.length}.`)
+  }
+
+  // Drag a catalog card into the cart, or a cart line to a new place.
+  const { drag, ghostRef, productHandleProps, lineHandleProps, consumeSuppressedClick } = useCartDrag({
+    itemCount: items.length,
+    onDropProduct: (product, index) => {
+      handleAddItem(product, { position: index })
+      setMoveAnnouncement(`${product.name} added to the cart at position ${Math.min(index, items.length) + 1}.`)
+    },
+    onReorder: (itemId, toIndex) => {
+      const line = items.find((item) => item.id === itemId)
+      moveItem(itemId, toIndex)
+      if (line) setMoveAnnouncement(`${line.name} moved to position ${toIndex + 1} of ${items.length}.`)
+    },
+  })
 
   const handleIncrement = (item) => {
     const product = products.find((p) => p.id === item.id)
@@ -306,6 +406,14 @@ function Cart() {
 
   const handleClearCart = () => {
     const snapshot = items.map((item) => ({ ...item }))
+    // Clearing the cart starts a new sale. The checkout draft (customer,
+    // phone, address, payment) belonged to the old one; left in place it
+    // pre-filled the next customer's checkout with the previous customer.
+    let draftSnapshot = null
+    try {
+      draftSnapshot = sessionStorage.getItem('blossom-checkout-draft')
+      sessionStorage.removeItem('blossom-checkout-draft')
+    } catch { /* storage unavailable: nothing to clear */ }
     clearCart()
     offerUndo({
       message: 'Cart cleared',
@@ -314,6 +422,7 @@ function Cart() {
           addItem(item)
           updateQuantity(item.id, item.quantity)
         })
+        try { if (draftSnapshot) sessionStorage.setItem('blossom-checkout-draft', draftSnapshot) } catch { /* ignore */ }
       },
     })
   }
@@ -467,9 +576,10 @@ function Cart() {
                       const productConfig = getCategoryConfig(product.category)
                       const ProductIcon = productConfig.icon
                       const historyClass = productClass(product)
-                      return <button key={product.id} type="button" onClick={() => handleAddItem(product)} aria-label={quantity > 0 ? `Add another ${product.name}; ${quantity} currently in cart` : `Add ${product.name} to cart`} className={`group flex min-w-0 flex-col overflow-hidden rounded-xl border bg-white text-left transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 active:scale-[0.99] ${justAdded ? 'border-accent/50 ring-2 ring-accent/15' : 'border-sage-dark/80'}`}>
+                      const isDragSource = drag?.kind === 'product' && drag.product?.id === product.id
+                      return <button key={product.id} type="button" {...productHandleProps(product)} onClick={() => { if (consumeSuppressedClick()) return; handleAddItem(product) }} aria-label={quantity > 0 ? `Add another ${product.name}; ${quantity} currently in cart. Drag it into the cart to choose its place.` : `Add ${product.name} to cart. Drag it into the cart to choose its place.`} className={`group flex min-w-0 flex-col overflow-hidden rounded-xl border bg-white text-left transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 active:scale-[0.99] ${justAdded ? 'border-accent/50 ring-2 ring-accent/15' : isDragSource ? 'border-accent/40 opacity-60' : 'border-sage-dark/80'}`}>
                         <div className="relative aspect-[4/3] w-full overflow-hidden bg-sage/50">
-                          {product.image_url && <img src={product.image_url} alt={product.name} loading="lazy" className="absolute inset-0 z-10 h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" onError={(event) => { event.currentTarget.style.display = 'none'; event.currentTarget.nextElementSibling?.classList.remove('hidden') }} />}
+                          {product.image_url && <img src={product.image_url} alt={product.name} loading="lazy" draggable="false" className="absolute inset-0 z-10 h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" onError={(event) => { event.currentTarget.style.display = 'none'; event.currentTarget.nextElementSibling?.classList.remove('hidden') }} />}
                           <div className={`absolute inset-0 flex items-center justify-center ${product.image_url ? 'hidden' : ''}`}><span className="grid h-14 w-14 place-items-center rounded-2xl border" style={{ backgroundColor: `${productConfig.color}12`, borderColor: `${productConfig.color}25` }}><ProductIcon size={26} style={{ color: productConfig.color }} /></span></div>
                           <span className={`absolute left-2 top-2 rounded-md border px-2 py-1 text-[10px] font-medium ${stockStatus.bg} ${stockStatus.border} ${stockStatus.text}`}><Box size={11} className="mr-1 inline" />{stockStatus.label}</span>
                           {quantity > 0 && <span className="absolute right-2 top-2 rounded-md bg-white/95 px-2 py-1 text-[10px] font-semibold text-primary shadow-sm">{quantity} in cart</span>}
@@ -478,7 +588,6 @@ function Cart() {
                           <div className="flex min-w-0 items-start justify-between gap-2"><p className="line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug text-gray-800" title={product.name}>{product.name}</p><span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-accent-subtle text-accent transition group-hover:bg-accent group-hover:text-white">{justAdded ? <Check size={15} /> : <Plus size={15} />}</span></div>
                           {(product.flower_type || product.color) && <div className="mt-1.5 flex flex-wrap gap-1">{product.flower_type && <span className="rounded-md bg-sage px-1.5 py-0.5 text-[10px] font-medium capitalize text-gray-600">{product.flower_type}</span>}{product.color && <span className="rounded-md bg-accent-subtle/60 px-1.5 py-0.5 text-[10px] font-medium capitalize text-accent">{product.color}</span>}</div>}
                           <div className="mt-auto flex items-end justify-between gap-2 pt-3"><p className="text-sm font-semibold tabular-nums text-primary">{product.price.toLocaleString('fr-FR')} <span className="text-xs font-medium">DA</span></p>{historyClass === 'frequent' && <span className="text-[10px] font-medium text-gray-400">Often picked</span>}{historyClass === 'recent' && <span className="text-[10px] font-medium text-gray-400">Recent</span>}</div>
-                          {stock - quantity <= 0 && <p className="mt-1 text-[10px] leading-snug text-danger">Stock count needs checking. You can still add it.</p>}
                         </div>
                       </button>
                     })}
@@ -489,13 +598,16 @@ function Cart() {
           </section>
 
           <aside aria-label="Cart review" className="sticky top-20 hidden h-[calc(100vh-6rem)] min-h-[32rem] xl:block">
-            <CartPanel items={items} unitCount={unitCount} subtotal={subtotal} total={total} startedAsQuickSale={startedAsQuickSale} onClear={handleClearCart} onDecrement={handleDecrement} onIncrement={handleIncrement} onQuantityChange={handleManualQuantity} onRemove={handleRemoveItem} onCheckout={() => navigate(startedAsQuickSale ? '/checkout?mode=quick_sale' : '/checkout')} />
+            <CartPanel items={items} unitCount={unitCount} subtotal={subtotal} total={total} startedAsQuickSale={startedAsQuickSale} onClear={handleClearCart} onDecrement={handleDecrement} onIncrement={handleIncrement} onQuantityChange={handleManualQuantity} onRemove={handleRemoveItem} onCheckout={() => navigate(startedAsQuickSale ? '/checkout?mode=quick_sale' : '/checkout')} drag={drag} lineHandleProps={lineHandleProps} onMoveLine={handleMoveLine} />
           </aside>
         </div>
 
-        {items.length > 0 && <div className="fixed inset-x-3 bottom-3 z-30 xl:hidden"><button type="button" onClick={() => setShowMobileCart(true)} className="flex min-h-14 w-full items-center justify-between gap-3 rounded-2xl bg-primary px-4 text-left text-white shadow-lg shadow-primary/20"><span className="flex min-w-0 items-center gap-2"><ShoppingCart size={18} /><span className="truncate text-sm font-semibold">Review cart · {items.length} line{items.length === 1 ? '' : 's'}</span></span><span className="shrink-0 text-sm font-semibold tabular-nums">{total.toLocaleString('fr-FR')} DA <ArrowRight size={15} className="ml-1 inline" /></span></button></div>}
+        {(items.length > 0 || drag?.kind === 'product') && <div data-cart-drop-zone="bar" className="fixed inset-x-3 bottom-3 z-30 xl:hidden"><button type="button" onClick={() => setShowMobileCart(true)} className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-2xl px-4 text-left text-white shadow-lg transition-colors ${drag?.overZone === 'bar' ? 'bg-accent shadow-accent/30 ring-4 ring-accent/30' : drag?.kind === 'product' ? 'bg-primary shadow-primary/20 ring-2 ring-dashed ring-white/60' : 'bg-primary shadow-primary/20'}`}><span className="flex min-w-0 items-center gap-2"><ShoppingCart size={18} /><span className="truncate text-sm font-semibold">{drag?.kind === 'product' ? (drag.overZone === 'bar' ? 'Release to add it' : 'Drop here to add to cart') : `Review cart · ${items.length} line${items.length === 1 ? '' : 's'}`}</span></span><span className="shrink-0 text-sm font-semibold tabular-nums">{total.toLocaleString('fr-FR')} DA <ArrowRight size={15} className="ml-1 inline" /></span></button></div>}
 
-        {showMobileCart && <div className="fixed inset-0 z-50 bg-gray-950/40 xl:hidden" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowMobileCart(false) }}><div role="dialog" aria-modal="true" aria-label="Review cart" className="absolute inset-x-0 bottom-0 h-[88dvh] max-h-[760px] sm:inset-y-4 sm:left-auto sm:right-4 sm:h-auto sm:w-full sm:max-w-md" onMouseDown={(event) => event.stopPropagation()}><CartPanel isMobile items={items} unitCount={unitCount} subtotal={subtotal} total={total} startedAsQuickSale={startedAsQuickSale} onClear={handleClearCart} onDecrement={handleDecrement} onIncrement={handleIncrement} onQuantityChange={handleManualQuantity} onRemove={handleRemoveItem} onCheckout={() => navigate(startedAsQuickSale ? '/checkout?mode=quick_sale' : '/checkout')} onClose={() => setShowMobileCart(false)} /></div></div>}
+        {showMobileCart && <div className="fixed inset-0 z-50 bg-gray-950/40 xl:hidden" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowMobileCart(false) }}><div role="dialog" aria-modal="true" aria-label="Review cart" className="absolute inset-x-0 bottom-0 h-[88dvh] max-h-[760px] sm:inset-y-4 sm:left-auto sm:right-4 sm:h-auto sm:w-full sm:max-w-md" onMouseDown={(event) => event.stopPropagation()}><CartPanel isMobile items={items} unitCount={unitCount} subtotal={subtotal} total={total} startedAsQuickSale={startedAsQuickSale} onClear={handleClearCart} onDecrement={handleDecrement} onIncrement={handleIncrement} onQuantityChange={handleManualQuantity} onRemove={handleRemoveItem} onCheckout={() => navigate(startedAsQuickSale ? '/checkout?mode=quick_sale' : '/checkout')} onClose={() => setShowMobileCart(false)} drag={drag} lineHandleProps={lineHandleProps} onMoveLine={handleMoveLine} /></div></div>}
+
+        <DragGhost drag={drag} ghostRef={ghostRef} />
+        <p className="sr-only" role="status" aria-live="polite">{moveAnnouncement}</p>
       </main>
     </DashboardLayout>
   )

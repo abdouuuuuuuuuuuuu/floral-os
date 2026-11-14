@@ -1,5 +1,6 @@
 // src/components/layout/Sidebar.jsx
 import { Link, useLocation } from 'react-router-dom'
+import { APP_VERSION } from '../../lib/appVersion'
 import {
   LayoutDashboard, ShoppingCart, Building2,
   FileText, Truck, Users, Settings, Vault, BarChart3,
@@ -208,6 +209,9 @@ function Sidebar({ isOpen = false, onClose = () => {} }) {
           ))
         )}
       </nav>
+      <p className="shrink-0 px-5 pb-3 pt-1 text-[11px] text-gray-400" aria-label={`Blossom version ${APP_VERSION}`}>
+        Blossom v{APP_VERSION}
+      </p>
     </aside>
   )
 }
