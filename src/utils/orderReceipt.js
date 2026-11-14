@@ -18,17 +18,81 @@ const formatDate = (value) => {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('fr-FR')
 }
 
-/** The customer's petal balance for a receipt. A failed lookup never blocks printing. */
-export async function petalsReceiptHtml(customerId) {
+/**
+ * Petals this order is worth, worked out with the same per-line rule as the
+ * database (bouquet contents first, then blossom_loyalty_points_per_unit).
+ * Returns null for orders on the old money rule or when it can't be worked out.
+ */
+async function orderPetals(orderId) {
+  const [{ data: order, error: orderError }, { data: lines, error: linesError }] = await Promise.all([
+    supabase.from('orders').select('status, total_amount, amount_paid, loyalty_scheme').eq('id', orderId).maybeSingle(),
+    supabase.from('order_items')
+      .select('quantity, bouquet_petals_per_unit, category, flower_type, product_name, products(category, flower_type, item_name)')
+      .eq('order_id', orderId),
+  ])
+  if (orderError) throw orderError
+  if (linesError) throw linesError
+  if (!order || order.loyalty_scheme !== 'per_flower') return null
+
+  const rates = new Map()
+  let petals = 0
+  for (const line of lines || []) {
+    let rate = line.bouquet_petals_per_unit
+    if (rate == null) {
+      const args = {
+        p_category: line.category || line.products?.category || null,
+        p_flower_type: line.flower_type || line.products?.flower_type || null,
+        p_name: line.product_name || line.products?.item_name || null,
+      }
+      const key = JSON.stringify(args)
+      if (!rates.has(key)) {
+        const { data, error } = await supabase.rpc('blossom_loyalty_points_per_unit', args)
+        if (error) throw error
+        rates.set(key, Number(data) || 0)
+      }
+      rate = rates.get(key)
+    }
+    petals += Number(line.quantity || 0) * Number(rate || 0)
+  }
+  return {
+    petals: Math.floor(petals),
+    cancelled: order.status === 'cancelled',
+    fullyPaid: Number(order.amount_paid || 0) >= Number(order.total_amount || 0),
+  }
+}
+
+/**
+ * The petals block of a receipt: what this order is worth from the moment it
+ * is created, and the customer's balance. The order's petals only reach the
+ * balance once it is fully paid (the database adds them then), so an unpaid
+ * order shows them as waiting. A failed lookup never blocks printing.
+ */
+export async function petalsReceiptHtml(customerId, orderId = null) {
   if (!customerId) return ''
+  const lines = []
   try {
     const { data, error } = await supabase.from('customer_loyalty_transactions')
       .select('points_delta').eq('customer_id', customerId)
     if (error) throw error
     const balance = Math.max(0, (data || []).reduce((sum, row) => sum + Number(row.points_delta || 0), 0))
+
+    if (orderId) {
+      try {
+        const info = await orderPetals(orderId)
+        if (info && !info.cancelled && info.petals > 0) {
+          lines.push(info.fullyPaid
+            ? `Petals from this order: +${info.petals.toLocaleString('fr-FR')}`
+            : `Petals from this order: ${info.petals.toLocaleString('fr-FR')}<br><span style="font-size:10px">Added once the order is fully paid</span>`)
+        }
+      } catch (error) {
+        console.warn('[receipt] Could not work out the order petals:', error)
+      }
+    }
+
     const reward = loyaltyDiscountForPoints(balance)
+    lines.push(`Your petals: ${balance.toLocaleString('fr-FR')}${reward > 0 ? `<br>Reward ready: ${reward.toLocaleString('fr-FR')} DA off` : ''}`)
     return `<div class="divider"></div>
-      <div class="center">Your petals: ${balance.toLocaleString('fr-FR')}${reward > 0 ? `<br>Reward ready: ${reward.toLocaleString('fr-FR')} DA off` : ''}</div>`
+      <div class="center">${lines.join('<br>')}</div>`
   } catch (error) {
     console.warn('[receipt] Could not load petal balance:', error)
     return ''
@@ -94,7 +158,7 @@ export async function printOrderReceipt(order, shopName = 'Blossom') {
     ? new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
     : ''
 
-  const petalsHtml = await petalsReceiptHtml(order.customer_id)
+  const petalsHtml = await petalsReceiptHtml(order.customer_id, order.id)
   const html = `
     <div class="center">
       <div class="brand">${escapeHtml(shopName)}</div>

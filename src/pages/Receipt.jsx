@@ -140,7 +140,7 @@ function Receipt() {
       ${order.payment_notes ? `<div style="font-size:9px;color:#555;margin-top:4px;">Payment note: ${escapeHtml(order.payment_notes)}</div>` : ''}
     `
 
-    const petalsHtml = await petalsReceiptHtml(order.customer_id)
+    const petalsHtml = await petalsReceiptHtml(order.customer_id, order.id)
     const html = `
       <div style="text-align:center;margin-bottom:8px;">
         <div style="font-size:18px;font-weight:bold;letter-spacing:2px;margin-bottom:2px;">${escapeHtml(shopName)}</div>
