@@ -1475,8 +1475,12 @@ function Orders() {
     <DashboardLayout>
       <main className="mx-auto max-w-[1600px] space-y-5 pb-6">
         <LoadErrorBanner what="orders" error={ordersLoadError} onRetry={() => refresh()} hasData={allOrders.length > 0} />
-        <header className="relative isolate flex flex-wrap items-end justify-between gap-4 overflow-hidden rounded-3xl border border-sage-dark/70 bg-gradient-to-br from-white via-white to-primary-subtle/50 px-5 py-5 shadow-sm sm:px-7 sm:py-6">
-          <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 -z-10 h-48 w-48 rounded-full bg-accent/10 blur-3xl" />
+        {/* No overflow-hidden on the header itself: it clipped the Flowers
+            Required panel. Only the decorative glow is clipped. */}
+        <header className="relative isolate z-30 flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-sage-dark/70 bg-gradient-to-br from-white via-white to-primary-subtle/50 px-5 py-5 shadow-sm sm:px-7 sm:py-6">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-3xl">
+            <div className="absolute -right-10 -top-16 h-48 w-48 rounded-full bg-accent/10 blur-3xl" />
+          </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Sales workspace · {allOrders.length} orders</p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-gray-900 sm:text-3xl">Orders</h1>
