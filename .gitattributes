@@ -1,0 +1,43 @@
+# Normalize line endings for everyone, regardless of each contributor's
+# core.autocrlf setting. Text is stored as LF in the repo.
+* text=auto eol=lf
+
+# Explicit text types
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.mjs   text eol=lf
+*.cjs   text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.json  text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.sql   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.svg   text eol=lf
+*.sh    text eol=lf
+
+# Windows batch files must stay CRLF
+*.bat   text eol=crlf
+
+# Binary types (never touched)
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.ttf    binary
+*.woff   binary
+*.woff2  binary
+*.pdf    binary
+*.exe    binary
+*.dll    binary
+*.node   binary
+*.pak    binary
+*.blockmap binary
+*.lottie binary
+
+# Collapse generated files in diffs/reviews on GitHub
+package-lock.json  -diff linguist-generated
