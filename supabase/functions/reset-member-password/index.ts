@@ -2,62 +2,17 @@
 // The function config disables gateway JWT verification, so this handler
 // verifies the bearer token itself before creating the service-role client.
 
-import { createClient } from 'jsr:@supabase/supabase-js@2'
-
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...cors, 'Content-Type': 'application/json' },
-  })
-}
+import { cors, HttpError, json, requireCaller } from '../_shared/require-caller.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   try {
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) return json({ error: 'Not signed in' }, 401)
-
-    const url = Deno.env.get('SUPABASE_URL')
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-    if (!url || !anonKey || !serviceRoleKey) {
-      console.error('reset-member-password is missing required Supabase environment variables')
-      return json({ error: 'Password reset is temporarily unavailable' }, 500)
-    }
-
-    // Verify the caller's token with the public client before using admin access.
-    const caller = createClient(url, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-    const { data: { user }, error: userError } = await caller.auth.getUser()
-    if (userError || !user) return json({ error: 'Not signed in' }, 401)
-
-    const admin = createClient(url, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-
-    const { data: callerProfile, error: callerProfileError } = await admin
-      .from('profiles')
-      .select('role, is_active')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (callerProfileError) {
-      console.error('Could not verify reset caller profile:', callerProfileError.message)
-      return json({ error: 'Could not verify your account permissions' }, 500)
-    }
-    if (!callerProfile?.is_active || !['owner', 'manager'].includes(callerProfile.role)) {
-      return json({ error: 'You do not have permission to reset team passwords' }, 403)
-    }
+    const { user, profile: callerProfile, admin } = await requireCaller(
+      req,
+      ['owner', 'manager'],
+      'You do not have permission to reset team passwords',
+    )
 
     let body: Record<string, unknown>
     try {
@@ -110,6 +65,7 @@ Deno.serve(async (req) => {
 
     return json({ success: true, audit_recorded: !auditError })
   } catch (err) {
+    if (err instanceof HttpError) return err.response
     console.error('reset-member-password failed:', err)
     return json({ error: 'Something went wrong resetting the password' }, 500)
   }

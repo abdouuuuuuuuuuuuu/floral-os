@@ -11,57 +11,18 @@
 // Deploy:  supabase functions deploy create-team-member
 // The SUPABASE_* env vars are injected automatically.
 
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { cors, HttpError, json, requireCaller } from '../_shared/require-caller.ts'
 
 const ALLOWED_ROLES = ['owner', 'manager', 'florist', 'cashier', 'delivery']
 
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...cors, 'Content-Type': 'application/json' },
-  })
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   try {
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader) return json({ error: 'Not signed in' }, 401)
-
-    // ── 1. Who is calling? Verified against their JWT. ──────────
-    const caller = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
-    )
-
-    const { data: { user }, error: userErr } = await caller.auth.getUser()
-    if (userErr || !user) return json({ error: 'Not signed in' }, 401)
-
-    // ── 2. Are they allowed to create accounts? ─────────────────
-    const admin = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    )
-
-    const { data: callerProfile } = await admin
-      .from('profiles')
-      .select('role, is_active')
-      .eq('id', user.id)
-      .single()
-
-    if (!callerProfile?.is_active || callerProfile.role !== 'owner') {
-      return json({ error: 'Only the shop owner can create staff accounts' }, 403)
-    }
+    // ── 1–2. Verified, active, owner-only caller. Because verify_jwt = false,
+    //         this is the ONLY gate between the public anon key and admin
+    //         account creation — requireCaller makes it impossible to skip. ──
+    const { user, admin } = await requireCaller(req, ['owner'], 'Only the shop owner can create staff accounts')
 
     // ── 3. Validate the payload ─────────────────────────────────
     let body: Record<string, unknown>
@@ -156,6 +117,7 @@ Deno.serve(async (req) => {
 
     return json({ profile })
   } catch (err) {
+    if (err instanceof HttpError) return err.response
     console.error('create-team-member failed:', err)
     return json({ error: 'Something went wrong creating the account' }, 500)
   }

@@ -9,63 +9,20 @@
 // The function config disables gateway JWT verification, so this handler
 // verifies the bearer token itself before creating the service-role client.
 
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { cors, HttpError, json, requireCaller } from '../_shared/require-caller.ts'
 
 // Long enough to be permanent until an owner or manager reactivates the account.
 const BAN_DURATION = '876000h'
 
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...cors, 'Content-Type': 'application/json' },
-  })
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   try {
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) return json({ error: 'Not signed in' }, 401)
-
-    const url = Deno.env.get('SUPABASE_URL')
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-    if (!url || !anonKey || !serviceRoleKey) {
-      console.error('set-member-status is missing required Supabase environment variables')
-      return json({ error: 'Changing account status is temporarily unavailable' }, 500)
-    }
-
-    const caller = createClient(url, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-    const { data: { user }, error: userError } = await caller.auth.getUser()
-    if (userError || !user) return json({ error: 'Not signed in' }, 401)
-
-    const admin = createClient(url, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-
-    const { data: callerProfile, error: callerProfileError } = await admin
-      .from('profiles')
-      .select('role, is_active')
-      .eq('id', user.id)
-      .maybeSingle()
-    if (callerProfileError) {
-      console.error('Could not verify status caller profile:', callerProfileError.message)
-      return json({ error: 'Could not verify your account permissions' }, 500)
-    }
-    if (!callerProfile?.is_active || !['owner', 'manager'].includes(callerProfile.role)) {
-      return json({ error: 'You do not have permission to change team access' }, 403)
-    }
+    const { user, profile: callerProfile, admin } = await requireCaller(
+      req,
+      ['owner', 'manager'],
+      'You do not have permission to change team access',
+    )
 
     let body: Record<string, unknown>
     try {
@@ -141,6 +98,7 @@ Deno.serve(async (req) => {
 
     return json({ profile, audit_recorded: !auditError })
   } catch (err) {
+    if (err instanceof HttpError) return err.response
     console.error('set-member-status failed:', err)
     return json({ error: 'Something went wrong changing team access' }, 500)
   }
