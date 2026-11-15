@@ -12,11 +12,11 @@ export function bouquetPetals(lilies, roses, otherFlowers) {
  */
 export function earnedPetals(transactions) {
   const archivedOrders = new Set(transactions
-    .filter((row) => row.order_id && /^Petals reversed because the order was archived/.test(row.note || ''))
+    .filter((row) => row.order_id && (row.note || '').startsWith('Petals reversed because the order was archived'))
     .map((row) => row.order_id))
   return transactions
     .filter((row) => !archivedOrders.has(row.order_id))
-    .filter((row) => row.transaction_type === 'earn' || /^Earned petals/.test(row.note || ''))
+    .filter((row) => row.transaction_type === 'earn' || (row.note || '').startsWith('Earned petals'))
     .reduce((sum, row) => sum + Number(row.points_delta || 0), 0)
 }
 export const LOYALTY_REDEMPTION_POINTS = 50

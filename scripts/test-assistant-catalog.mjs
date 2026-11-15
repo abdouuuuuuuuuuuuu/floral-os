@@ -368,7 +368,7 @@ check('order creation wrapper migration installs the RPC dependency with server-
 
 check('order delay errors are translated into retryable staff guidance', () => {
   assert.equal(translateOrderError({ message: 'role cannot delay orders' }), 'You do not have permission to reschedule orders.')
-  assert.equal(translateOrderError({ message: 'new delivery date must be in the future' }), 'Choose a delivery date after today.')
+  assert.equal(translateOrderError({ message: 'new delivery date must be in the future' }), 'Choose a delivery date after today. (Apply the latest order-reschedule migration to allow today and earlier dates.)')
   assert.equal(translateOrderError({ message: 'order not found' }), 'This order could not be found. Refresh the order list and try again.')
   assert.match(translateOrderError({ code: 'PGRST202', message: 'Could not find the function public.blossom_create_order(jsonb, jsonb)' }), /No order was saved.*latest order-creation migration/)
 })
