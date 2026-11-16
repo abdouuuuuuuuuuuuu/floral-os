@@ -1,19 +1,6 @@
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { cors, HttpError, json, requireCaller } from '../_shared/require-caller.ts'
 
 const MAX_ROUTE_SNAP_DISTANCE_METERS = 5000
-
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...cors, 'Content-Type': 'application/json' },
-  })
-}
 
 function coordinate(value: unknown) {
   if (value == null || (typeof value === 'string' && value.trim() === '')) return null
@@ -45,43 +32,13 @@ function isNonPublicRouteHost(hostname: string) {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   try {
-    const authorization = req.headers.get('Authorization') || ''
-    if (!authorization.startsWith('Bearer ')) return json({ error: 'Not signed in' }, 401)
-
-    const url = Deno.env.get('SUPABASE_URL')
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-    if (!url || !anonKey || !serviceRoleKey) {
-      console.error('calculate-shipping-route is missing required Supabase environment variables')
-      return json({ error: 'Route calculation is temporarily unavailable' }, 500)
-    }
-
-    const caller = createClient(url, anonKey, {
-      global: { headers: { Authorization: authorization } },
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-    const { data: { user }, error: userError } = await caller.auth.getUser()
-    if (userError || !user) return json({ error: 'Not signed in' }, 401)
-
-    const admin = createClient(url, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-    const { data: profile, error: profileError } = await admin
-      .from('profiles')
-      .select('role, is_active')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (profileError) {
-      console.error('Could not verify route caller:', profileError.message)
-      return json({ error: 'Could not verify your account permissions' }, 500)
-    }
-    if (!profile?.is_active || !['owner', 'manager', 'florist', 'cashier'].includes(profile.role)) {
-      return json({ error: 'You do not have permission to calculate delivery routes' }, 403)
-    }
+    const { admin } = await requireCaller(
+      req,
+      ['owner', 'manager', 'florist', 'cashier'],
+      'You do not have permission to calculate delivery routes',
+    )
 
     let body: Record<string, unknown>
     try {
@@ -273,6 +230,7 @@ Deno.serve(async (req) => {
 
     return json({ distance_km: distanceKm, transit_days: transitDays, duration_seconds: routeDurationSeconds, max_snap_distance_m: maxSnapDistanceMeters })
   } catch (error) {
+    if (error instanceof HttpError) return error.response
     console.error('calculate-shipping-route failed:', error)
     return json({ error: 'Route calculation failed unexpectedly' }, 500)
   }
